@@ -11,14 +11,14 @@ def _hex_to_rgba(hex_color, alpha=0.4):
     return f"rgba({r},{g},{b},{alpha})"
 
 
-def build_global_figure(experiment_stats, all_experiments):
+def build_global_figure(topic_stats, all_topics):
     """
-    全局雷达图: 16 个实验维度。
-    每个实验得分 = 正确率×70 + 速度因子×15 + 连击因子×15 (范围 0-100)。
+    全局雷达图: 各章节维度。
+    每个章节得分 = 正确率×70 + 速度因子×15 + 连击因子×15 (范围 0-100)。
 
     参数:
-        experiment_stats: dict - {实验名: {correct, wrong, timeout, total}}
-        all_experiments: list[str] - 所有实验名列表 (来自 experiment_meta.csv)
+        topic_stats: dict - {章节名: {correct, wrong, timeout, total}}
+        all_topics: list[str] - 所有章节名列表 (来自 topics.csv)
 
     返回:
         plotly.graph_objects.Figure
@@ -26,32 +26,30 @@ def build_global_figure(experiment_stats, all_experiments):
     labels = []
     values = []
 
-    # 合并: experiment_stats 中已有的 + all_experiments 中存在但未答题的
-    exp_set = list(all_experiments) if all_experiments else []
+    # 合并: topic_stats 中已有的 + all_topics 中存在但未答题的
+    topic_set = list(all_topics) if all_topics else []
     # 加入 stats 中存在但元数据里没有的 (容错)
-    for exp_name in experiment_stats.keys():
-        if exp_name and exp_name not in exp_set:
-            exp_set.append(exp_name)
+    for topic_name in topic_stats.keys():
+        if topic_name and topic_name not in topic_set:
+            topic_set.append(topic_name)
 
-    if not exp_set:
+    if not topic_set:
         fig = go.Figure()
         fig.update_layout(title={"text": "暂无数据 — 先去答题吧!"})
         return fig
 
-    for exp in exp_set:
-        if not exp:
+    for topic in topic_set:
+        if not topic:
             continue
-        labels.append(exp)
-        stat = experiment_stats.get(exp, {})
+        labels.append(topic)
+        stat = topic_stats.get(topic, {})
         total = int(stat.get("total", 0))
         correct = int(stat.get("correct", 0))
         if total == 0:
             values.append(0.0)
         else:
             accuracy = correct / total
-            # 速度因子: 总题数越多越熟练 (上限 1.0)
             speed_factor = min(total / 20.0, 1.0)
-            # 连击因子: 用正确率代替 (简化, 与 accuracy 正相关)
             combo_factor = accuracy
             score = accuracy * 70 + speed_factor * 15 + combo_factor * 15
             values.append(min(score, 100.0))
@@ -69,7 +67,7 @@ def build_global_figure(experiment_stats, all_experiments):
         hovertemplate="<b>%{theta}</b><br>掌握度: %{r:.1f}<extra></extra>",
     ))
     fig.update_layout(
-        title={"text": "📊 全局掌握度 (各实验)", "font": {"size": 18}},
+        title={"text": "📊 全局掌握度 (各章节)", "font": {"size": 18}},
         polar=dict(
             radialaxis=dict(range=[0, 100], tickfont={"size": 10}, showline=True),
             angularaxis=dict(tickfont={"size": 10}),
@@ -81,18 +79,18 @@ def build_global_figure(experiment_stats, all_experiments):
     return fig
 
 
-def build_local_figure(experiment_name, topic_stats):
+def build_local_figure(topic_name, knowledge_stats):
     """
-    单实验雷达图: 以知识点/题目难度为轴，展示该实验维度下各知识点掌握情况。
-    topic_stats 形如: {'知识点A': 正确率(0-100), '知识点B': ...}
+    单章节雷达图: 以知识点/题目难度为轴，展示该章节维度下各知识点掌握情况。
+    knowledge_stats 形如: {'知识点A': 正确率(0-100), '知识点B': ...}
     """
-    if not topic_stats:
+    if not knowledge_stats:
         fig = go.Figure()
-        fig.update_layout(title={"text": f"「{experiment_name}」 暂无知识点统计"})
+        fig.update_layout(title={"text": f"「{topic_name}」 暂无知识点统计"})
         return fig
 
-    labels = list(topic_stats.keys())
-    values = [float(v) for v in topic_stats.values()]
+    labels = list(knowledge_stats.keys())
+    values = [float(v) for v in knowledge_stats.values()]
 
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
@@ -107,7 +105,7 @@ def build_local_figure(experiment_name, topic_stats):
         hovertemplate="<b>%{theta}</b><br>正确率: %{r:.1f}%<extra></extra>",
     ))
     fig.update_layout(
-        title={"text": f"🎯 「{experiment_name}」 知识点掌握度", "font": {"size": 18}},
+        title={"text": f"🎯 「{topic_name}」 知识点掌握度", "font": {"size": 18}},
         polar=dict(
             radialaxis=dict(range=[0, 100], tickfont={"size": 10}),
             angularaxis=dict(tickfont={"size": 10}),

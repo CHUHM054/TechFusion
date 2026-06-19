@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """错题本页 —— 查看、筛选、导出错题，支持一键进入错题重练模式"""
 import os
 import sys
@@ -12,7 +12,7 @@ import pandas as pd
 import io
 from datetime import datetime
 
-from config import APP_NAME
+from config import APP_NAME, get_active_questions_csv
 from utils.storage import save_session, remove_wrong_question
 from utils.theme import inject_gufeng_css
 
@@ -21,11 +21,11 @@ st.set_page_config(page_title=f"错题本 - {APP_NAME}", layout="wide")
 inject_gufeng_css()
 
 from utils.question_loader import load_questions
-_ = load_questions()  # 热缓存
+_ = load_questions(get_active_questions_csv())  # 热缓存
 
 # ---- 确保 session_state 存在 ----
 for key, default in (
-    ("wrong_questions", []), ("experiment_stats", {}),
+    ("wrong_questions", []), ("topic_stats", {}),
     ("total_score", 0.0), ("total_correct", 0), ("total_wrong", 0),
     ("total_questions", 0), ("max_combo_ever", 0), ("round_history", []),
 ):
@@ -49,25 +49,25 @@ st.divider()
 if wrong_list:
     # ---- 筛选控件 ----
     fc1, fc2, fc3 = st.columns([2, 2, 2])
-    experiments = sorted({e.get("experiment", "其他") for e in wrong_list})
+    topics = sorted({e.get("topic", "其他") for e in wrong_list})
     with fc1:
-        filter_exp = st.selectbox("按实验筛选", ["全部"] + experiments)
+        filter_topic = st.selectbox("按章节筛选", ["全部"] + topics)
     with fc2:
-        sort_by = st.selectbox("排序方式", ["最近错误", "错误次数", "按实验"])
+        sort_by = st.selectbox("排序方式", ["最近错误", "错误次数", "按章节"])
     with fc3:
         st.write("")  # 占位
 
     # ---- 应用筛选 ----
     filtered = wrong_list
-    if filter_exp != "全部":
-        filtered = [e for e in filtered if e.get("experiment") == filter_exp]
+    if filter_topic != "全部":
+        filtered = [e for e in filtered if e.get("topic") == filter_topic]
 
     if sort_by == "最近错误":
         filtered.sort(key=lambda x: x.get("last_wrong_ts", 0), reverse=True)
     elif sort_by == "错误次数":
         filtered.sort(key=lambda x: x.get("wrong_count", 0), reverse=True)
-    else:  # 按实验
-        filtered.sort(key=lambda x: x.get("experiment", ""))
+    else:  # 按章节
+        filtered.sort(key=lambda x: x.get("topic", ""))
 
     # ---- 展示 ----
     st.markdown(f"#### 📋 错题列表 ({len(filtered)} 题)")
@@ -83,9 +83,16 @@ if wrong_list:
                     st.markdown(f"**你选择了:** {entry.get('user_answer_context', '')}")
                     st.markdown(f"**正确答案:** {entry.get('correct_answer_context', '')}")
                 else:
-                    st.markdown(f"**你的答案:** `{entry.get('user_answer', '')}`")
-                    st.markdown(f"**正确答案:** `{entry.get('correct_answer', '')}`")
-                st.markdown(f"**所属实验:** {entry.get('experiment', '未分类')}")
+                    user_ans = entry.get("user_answer", "")
+                    if isinstance(user_ans, list):
+                        user_ans = " | ".join(str(x) for x in user_ans)
+                    correct_ans = str(entry.get("correct_answer", ""))
+                    if "||" in correct_ans:
+                        blanks = [b.replace("|", "/") for b in correct_ans.split("||")]
+                        correct_ans = " | ".join(blanks)
+                    st.markdown(f"**你的答案:** `{user_ans}`")
+                    st.markdown(f"**正确答案:** `{correct_ans}`")
+                st.markdown(f"**所属章节:** {entry.get('topic', '未分类')}")
                 st.markdown(f"**累计错误次数:** {int(entry.get('wrong_count', 1))}")
                 last_ts = entry.get("last_wrong_ts", None)
                 if last_ts:

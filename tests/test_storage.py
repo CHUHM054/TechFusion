@@ -11,21 +11,20 @@ APP_DIR = os.path.dirname(TEST_DIR)
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
-# 测试前: 临时覆盖 config 中的 SESSION_DIR / SESSION_FILE
 import config as _config
 _ORIG_DIR = _config.SESSION_DIR
 _ORIG_FILE = _config.SESSION_FILE
 
-# 由于 storage.py 已经 import 了这些常量, 需要在 storage 模块内 patch
 import utils.storage as _storage
 
 
 class TestStorageBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="quiz_test_")
-        # 在 storage 模块内替换路径常量
         _storage.SESSION_DIR = self.tmp
         _storage.SESSION_FILE = os.path.join(self.tmp, "session.json")
+        _storage.ARCHIVES_DIR = os.path.join(self.tmp, "archives")
+        _storage.ARCHIVES_META_FILE = os.path.join(self.tmp, "archives_meta.json")
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -36,7 +35,7 @@ class TestBasic(TestStorageBase):
         self.assertIsNone(_storage.load_session())
 
     def test_save_creates_file(self):
-        self.assertTrue(_storage.save_session({"total_score": 42.0}))
+        _storage.save_session({"total_score": 42.0})
         self.assertTrue(os.path.exists(_storage.SESSION_FILE))
 
     def test_save_and_load_roundtrip(self):
@@ -46,17 +45,16 @@ class TestBasic(TestStorageBase):
             "total_wrong": 3,
             "total_questions": 13,
             "max_combo_ever": 7,
-            "experiment_stats": {"绪论": {"correct": 3, "wrong": 1, "timeout": 0, "total": 4}},
+            "topic_stats": {"绪论": {"correct": 3, "wrong": 1, "timeout": 0, "total": 4}},
             "wrong_questions": [],
             "round_history": [],
         }
-        ok = _storage.save_session(original)
-        self.assertTrue(ok)
+        _storage.save_session(original)
         loaded = _storage.load_session()
         self.assertIsNotNone(loaded)
         self.assertAlmostEqual(loaded["total_score"], 42.5, places=2)
         self.assertEqual(loaded["max_combo_ever"], 7)
-        self.assertEqual(loaded["experiment_stats"]["绪论"]["correct"], 3)
+        self.assertEqual(loaded["topic_stats"]["绪论"]["correct"], 3)
 
     def test_corrupted_file_returns_none(self):
         with open(_storage.SESSION_FILE, "w", encoding="utf-8") as f:
@@ -64,11 +62,10 @@ class TestBasic(TestStorageBase):
         self.assertIsNone(_storage.load_session())
 
     def test_default_fields_injected(self):
-        # 旧版本只存了部分字段，加载时应补全
         minimal = {"total_score": 1.0}
         _storage.save_session(minimal)
         loaded = _storage.load_session()
-        for k in ("wrong_questions", "round_history", "experiment_stats"):
+        for k in ("wrong_questions", "round_history", "topic_stats"):
             self.assertIn(k, loaded)
 
 
@@ -106,22 +103,22 @@ class TestWrongBook(TestStorageBase):
 class TestExperimentStats(TestStorageBase):
     def test_new_experiment(self):
         state = dict(_storage.DEFAULT_SESSION)
-        state["experiment_stats"] = {}
-        _storage.update_experiment_stats(state, "绪论", True)
-        self.assertEqual(state["experiment_stats"]["绪论"]["correct"], 1)
-        self.assertEqual(state["experiment_stats"]["绪论"]["total"], 1)
+        state["topic_stats"] = {}
+        _storage.update_topic_stats(state, "绪论", True)
+        self.assertEqual(state["topic_stats"]["绪论"]["correct"], 1)
+        self.assertEqual(state["topic_stats"]["绪论"]["total"], 1)
 
     def test_wrong_increments_wrong(self):
         state = dict(_storage.DEFAULT_SESSION)
-        state["experiment_stats"] = {}
-        _storage.update_experiment_stats(state, "绪论", False)
-        self.assertEqual(state["experiment_stats"]["绪论"]["wrong"], 1)
+        state["topic_stats"] = {}
+        _storage.update_topic_stats(state, "绪论", False)
+        self.assertEqual(state["topic_stats"]["绪论"]["wrong"], 1)
 
     def test_timeout_flag(self):
         state = dict(_storage.DEFAULT_SESSION)
-        state["experiment_stats"] = {}
-        _storage.update_experiment_stats(state, "绪论", False, is_timeout=True)
-        self.assertEqual(state["experiment_stats"]["绪论"]["timeout"], 1)
+        state["topic_stats"] = {}
+        _storage.update_topic_stats(state, "绪论", False, is_timeout=True)
+        self.assertEqual(state["topic_stats"]["绪论"]["timeout"], 1)
 
 
 class TestRoundHistory(TestStorageBase):

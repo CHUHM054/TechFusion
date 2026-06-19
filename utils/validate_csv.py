@@ -7,7 +7,7 @@ import os
 import pandas as pd
 
 REQUIRED_COLS = [
-    "id", "type", "experiment", "topic", "difficulty",
+    "id", "type", "topic", "difficulty",
     "question", "answer", "explanation", "keywords", "source",
     "option_a", "option_b", "option_c", "option_d",
 ]
@@ -19,7 +19,7 @@ VALID_JUDGE_ANSWERS = {"对", "错"}
 def validate(csv_path: str):
     errors = []
     total = 0
-    experiments = 0
+    topics = 0
     if not os.path.exists(csv_path):
         errors.append(f"[FATAL] 文件不存在: {csv_path}")
         return errors, 0, 0
@@ -30,12 +30,14 @@ def validate(csv_path: str):
         return errors, 0, 0
 
     df.columns = [c.strip() for c in df.columns]
+    if "experiment" in df.columns and "topic" not in df.columns:
+        df["topic"] = df["experiment"]
     for col in REQUIRED_COLS:
         if col not in df.columns:
             errors.append(f"[MISSING] 缺少必填列: {col}")
 
     if errors:
-        return errors, len(df), df["experiment"].nunique() if "experiment" in df.columns else 0
+        return errors, len(df), df["topic"].nunique() if "topic" in df.columns else 0
 
     for idx, row in df.iterrows():
         qid = str(row.get("id", idx))
@@ -74,8 +76,8 @@ def validate(csv_path: str):
             errors.append(f"[row {idx+2}] id={qid}: difficulty 应为整数")
 
     total = len(df)
-    experiments = df["experiment"].nunique() if "experiment" in df.columns else 0
-    return errors, total, experiments
+    topics = df["topic"].nunique() if "topic" in df.columns else 0
+    return errors, total, topics
 
 
 if __name__ == "__main__":
@@ -86,11 +88,11 @@ if __name__ == "__main__":
             os.path.dirname(os.path.abspath(__file__)),
             "..", "data", "questions.csv",
         )
-    errors, total, experiments = validate(csv_file)
+    errors, total, topics = validate(csv_file)
     print("=" * 50)
     print(f"题库校验: {'PASS' if not errors else 'FAIL'}")
     print(f"  总题数: {total}")
-    print(f"  实验覆盖: {experiments}/17")
+    print(f"  章节覆盖: {topics}/17")
     print(f"  错误数: {len(errors)}")
     if errors:
         for e in errors:
@@ -110,8 +112,8 @@ if __name__ == "__main__":
         for d, c in dc.items():
             print(f"  难度{d}: {c} ({c/total*100:.0f}%)")
 
-        print(f"\n--- 每实验题型分布 ---")
-        for exp, grp in df.groupby('experiment'):
+        print(f"\n--- 每章节题型分布 ---")
+        for exp, grp in df.groupby('topic'):
             etc = grp['type'].value_counts()
             edc = grp['difficulty'].value_counts()
             choice_n = etc.get('choice', 0)

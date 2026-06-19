@@ -7,6 +7,7 @@
 - 这样即便传入的是 Streamlit 的 SessionStateProxy 也不会因为包含不可
   序列化对象而崩溃
 """
+import hashlib
 import json
 import os
 import time
@@ -19,10 +20,14 @@ DEFAULT_SESSION = {
     "total_wrong": 0,
     "total_questions": 0,
     "max_combo_ever": 0,
-    "experiment_stats": {},
+    "topic_stats": {},
     "wrong_questions": [],
     "round_history": [],
 }
+
+# 存档目录
+ARCHIVES_DIR = os.path.join(SESSION_DIR, "archives")
+ARCHIVES_META_FILE = os.path.join(SESSION_DIR, "archives_meta.json")
 
 # 持久化白名单 = DEFAULT_SESSION 的 keys
 PERSIST_KEYS = tuple(DEFAULT_SESSION.keys())
@@ -35,52 +40,52 @@ def _ensure_dir():
         os.makedirs(SESSION_DIR, exist_ok=True)
 
 
-def load_session():
-    """读取 session.json 并返回 dict；若文件不存在或损坏，返回 None"""
-    if not os.path.exists(SESSION_FILE):
+def load_session(archive_name=None):
+    """从 JSON 加载 session 数据。
+    如果 archive_name 非空，从 archives/{name}.json 加载；否则从 session.json
+    """
+    if archive_name:
+        filepath = os.path.join(ARCHIVES_DIR, f"{archive_name}.json")
+    else:
+        filepath = SESSION_FILE
+    if not os.path.exists(filepath):
         return None
     try:
-        with open(SESSION_FILE, "r", encoding="utf-8") as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
+        # 向后兼容: experiment_stats → topic_stats
+        if "experiment_stats" in data and "topic_stats" not in data:
+            data["topic_stats"] = data.pop("experiment_stats")
+        # 向后兼容: 错题本 experiment key → topic
+        for entry in data.get("wrong_questions", []):
+            if "experiment" in entry and "topic" not in entry:
+                entry["topic"] = entry.pop("experiment")
         # 兼容: 缺失字段补默认值
         for k, v in DEFAULT_SESSION.items():
             if k not in data:
                 data[k] = v
         return data
-    except (json.JSONDecodeError, IOError, OSError, ValueError):
+    except Exception:
         return None
 
 
-def save_session(state):
-    """原子写入 session.json。
-    传入的 state 可以是普通 dict，也可以是 Streamlit 的 SessionStateProxy。
-    只持久化 PERSIST_KEYS 中的字段（白名单式）。
+def save_session(state, archive_name=None):
+    """持久化 session_state 中白名单字段到 JSON。
+    如果 archive_name 非空，写入 archives/{name}.json；否则写入 session.json
     """
-    if state is None:
-        return False
-    # 白名单抽取: 仅提取我们关心、且可被 json 序列化的字段
-    to_save = {}
+    data = {}
     for k in PERSIST_KEYS:
-        try:
-            val = state[k] if k in state else DEFAULT_SESSION[k]
-        except Exception:
-            val = DEFAULT_SESSION[k]
-        to_save[k] = _make_json_safe(val)
-
-    _ensure_dir()
-    tmp_file = SESSION_FILE + ".tmp"
-    try:
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump(to_save, f, ensure_ascii=False, indent=2, sort_keys=True)
-        os.replace(tmp_file, SESSION_FILE)
-        return True
-    except (IOError, OSError):
-        try:
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
-        except OSError:
-            pass
-        return False
+        if k in state:
+            data[k] = state[k]
+    if archive_name:
+        os.makedirs(ARCHIVES_DIR, exist_ok=True)
+        filepath = os.path.join(ARCHIVES_DIR, f"{archive_name}.json")
+    else:
+        filepath = SESSION_FILE
+    tmp = filepath + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    os.replace(tmp, filepath)
 
 
 def _make_json_safe(val):
@@ -115,7 +120,7 @@ def _build_context(qtype, answer, options):
 
 
 def add_wrong_question(state, qid, question_text, user_answer,
-                       correct_answer, experiment,
+                       correct_answer, topic,
                        question_type=None, options=None):
     """
     将一道错题加入错题本。若 qid 已存在则更新错误次数和时间戳。
@@ -140,7 +145,7 @@ def add_wrong_question(state, qid, question_text, user_answer,
         "question_text": question_text,
         "user_answer": user_answer,
         "correct_answer": correct_answer,
-        "experiment": experiment,
+        "topic": topic,
         "wrong_count": 1,
         "last_wrong_ts": now,
     }
@@ -169,13 +174,13 @@ def is_wrong_question(state, qid):
     return any(str(e.get("qid")) == str(qid) for e in state.get("wrong_questions", []))
 
 
-# ========== 实验统计 ==========
-def update_experiment_stats(state, experiment_name, is_correct, is_timeout=False):
-    """更新某实验的答题统计。state 原地修改。"""
+# ========== 章节统计 ==========
+def update_topic_stats(state, topic_name, is_correct, is_timeout=False):
+    """更新某章节的答题统计。state 原地修改。"""
     if state is None:
         return state
-    stats = state.setdefault("experiment_stats", {})
-    exp = stats.setdefault(experiment_name, {
+    stats = state.setdefault("topic_stats", {})
+    exp = stats.setdefault(topic_name, {
         "correct": 0, "wrong": 0, "timeout": 0, "total": 0,
     })
     exp["total"] += 1
@@ -207,3 +212,103 @@ def add_round_history(state, mode, score, accuracy, max_combo, count):
     if len(history) > 100:
         state["round_history"] = history[-100:]
     return state
+
+
+# ========== 存档管理 ==========
+def _read_meta():
+    if not os.path.exists(ARCHIVES_META_FILE):
+        return {"archives": [], "auto_load": None, "remember_key": False}
+    try:
+        with open(ARCHIVES_META_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"archives": [], "auto_load": None, "remember_key": False}
+
+
+def _write_meta(meta):
+    os.makedirs(SESSION_DIR, exist_ok=True)
+    tmp = ARCHIVES_META_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, ARCHIVES_META_FILE)
+
+
+def list_archives():
+    """返回存档列表 [{"name":..., "key_hash":..., "created":..., "last_used":...}]"""
+    meta = _read_meta()
+    return meta.get("archives", [])
+
+
+def create_archive(name, key=None):
+    """创建存档。返回 True 成功，False 名称已存在"""
+    meta = _read_meta()
+    if any(a["name"] == name for a in meta["archives"]):
+        return False
+    from datetime import datetime
+    key_hash = hashlib.sha256(key.encode()).hexdigest() if key else None
+    archive = {
+        "name": name,
+        "key_hash": key_hash,
+        "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "last_used": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    meta["archives"].append(archive)
+    _write_meta(meta)
+    empty = {}
+    for k in PERSIST_KEYS:
+        v = DEFAULT_SESSION.get(k)
+        if k == "total_score":
+            empty[k] = 0.0
+        elif isinstance(v, int):
+            empty[k] = 0
+        elif isinstance(v, dict):
+            empty[k] = {}
+        else:
+            empty[k] = []
+    save_session(empty, archive_name=name)
+    return True
+
+
+def delete_archive(name):
+    meta = _read_meta()
+    meta["archives"] = [a for a in meta["archives"] if a["name"] != name]
+    if meta.get("auto_load") == name:
+        meta["auto_load"] = None
+        meta["remember_key"] = False
+    _write_meta(meta)
+    filepath = os.path.join(ARCHIVES_DIR, f"{name}.json")
+    if os.path.exists(filepath):
+        os.remove(filepath)
+
+
+def verify_archive_key(name, key):
+    meta = _read_meta()
+    for a in meta["archives"]:
+        if a["name"] == name:
+            if a.get("key_hash") is None:
+                return True
+            return hashlib.sha256(key.encode()).hexdigest() == a["key_hash"]
+    return False
+
+
+def set_auto_load(name, remember_key=False):
+    meta = _read_meta()
+    meta["auto_load"] = name
+    meta["remember_key"] = remember_key
+    _write_meta(meta)
+
+
+def get_auto_load():
+    meta = _read_meta()
+    return meta.get("auto_load"), meta.get("remember_key", False)
+
+
+def touch_archive(name):
+    """更新 last_used 时间戳"""
+    from datetime import datetime
+    meta = _read_meta()
+    for a in meta["archives"]:
+        if a["name"] == name:
+            a["last_used"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            break
+    _write_meta(meta)

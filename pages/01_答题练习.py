@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """答题练习页 —— 4 种模式 + 倒计时 + 计分
 
 session_state 关键字段说明:
@@ -31,13 +31,13 @@ import random
 
 from config import (
     TIME_LIMIT_CHOICE, TIME_LIMIT_JUDGE, TIME_LIMIT_FILL,
-    MODE_CONFIG, DILIGENCE_MODES, APP_NAME,
+    MODE_CONFIG, DILIGENCE_MODES, APP_NAME, get_active_questions_csv,
 )
 from utils.question_loader import load_questions, sample_questions
 from utils.scorer import score_question, count_keyword_hits, similarity_score
 from utils.storage import (
     save_session, add_wrong_question, is_wrong_question,
-    update_experiment_stats, add_round_history,
+    update_topic_stats, add_round_history,
 )
 from utils.theme import inject_gufeng_css
 
@@ -65,6 +65,8 @@ def _init_quiz_state():
     st.session_state.last_user_answer = ""  # 上题用户答案
     st.session_state.recent_results = []  # 最近5题判题摘要
     st.session_state.wrong_ids_this_round = set()
+    if "recent_pool_ids" not in st.session_state:
+        st.session_state.recent_pool_ids = []
 
 
 def _ensure_global_state():
@@ -72,8 +74,9 @@ def _ensure_global_state():
     for key, default in (
         ("total_score", 0.0), ("total_correct", 0), ("total_wrong", 0),
         ("total_questions", 0), ("max_combo_ever", 0),
-        ("experiment_stats", {}), ("wrong_questions", []),
-        ("round_history", []), ("loaded", True),
+        ("topic_stats", {}), ("wrong_questions", []),
+        ("round_history", []), ("current_archive", None),
+        ("archive_key", None), ("loaded", True),
     ):
         if key not in st.session_state:
             st.session_state[key] = default
@@ -134,6 +137,10 @@ def _start_quiz(mode, count=None, experiment=None):
     st.session_state.quiz_mode = mode
     st.session_state.pool = pool
     st.session_state.quiz_started = True
+    pool_ids = [q.get("id") for q in pool]
+    st.session_state.recent_pool_ids.append(pool_ids)
+    if len(st.session_state.recent_pool_ids) > 3:
+        st.session_state.recent_pool_ids = st.session_state.recent_pool_ids[-3:]
     st.session_state.start_ts = time.time()
     if mode == "diligence":
         st.session_state.diligence_start_ts = time.time()
@@ -156,6 +163,7 @@ def _handle_submit(user_answer_raw):
         current_combo=st.session_state.current_combo,
         user_answer=user_answer_raw, correct_answer=q["answer"],
         is_timeout=is_timeout,
+        blank_count=int(q.get("blank_count", 1)),
     )
 
     # 更新本轮统计
@@ -173,7 +181,7 @@ def _handle_submit(user_answer_raw):
         add_wrong_question(
             st.session_state, qid=q["id"], question_text=q.get("question", ""),
             user_answer=user_answer_display,
-            correct_answer=q["answer"], experiment=q.get("experiment", ""),
+            correct_answer=q["answer"], topic=q.get("topic", ""),
             question_type=q["type"],
             options={"A": q.get("option_a", ""), "B": q.get("option_b", ""),
                      "C": q.get("option_c", ""), "D": q.get("option_d", "")}
@@ -192,13 +200,13 @@ def _handle_submit(user_answer_raw):
         int(st.session_state.get("max_combo_ever", 0)), result["new_combo"]
     )
 
-    # 实验统计
-    update_experiment_stats(
-        st.session_state, q.get("experiment", ""), result["is_correct"], is_timeout
+    # 章节统计
+    update_topic_stats(
+        st.session_state, q.get("topic", ""), result["is_correct"], is_timeout
     )
 
     # 持久化
-    save_session(st.session_state)
+    save_session(st.session_state, archive_name=st.session_state.get("current_archive"))
 
     # 显示结果反馈
     st.session_state.last_result = result
@@ -242,7 +250,7 @@ def _advance_to_next():
             max_combo=st.session_state.max_combo_in_round,
             count=total_ans,
         )
-        save_session(st.session_state)
+        save_session(st.session_state, archive_name=st.session_state.get("current_archive"))
     else:
         st.session_state.q_index = idx
         st.session_state.start_ts = time.time()
@@ -259,68 +267,23 @@ def _go_next_question():
 
 
 def _build_diligence_pool(count):
-    """勤能补拙智能选题: 错题 + 薄弱实验重点 + 随机填充"""
-    wrong_list = st.session_state.get("wrong_questions", [])
-    exp_stats = st.session_state.get("experiment_stats", {})
-
-    pool = []
-    wrong_ids_used = set()
-
-    if count <= 5:
-        n_wrong_max = 2
-        n_key_min = 1
-    elif count <= 15:
-        n_wrong_max = 5
-        n_key_min = 3
-    else:
-        n_wrong_max = 5
-        n_key_min = 5
-
-    if wrong_list:
-        wrong_sample = wrong_list[:min(n_wrong_max, len(wrong_list))]
-        random.shuffle(wrong_sample)
-        wrong_ids_used = {str(w["qid"]) for w in wrong_sample[:n_wrong_max]}
-        df = load_questions()
-        for wid in wrong_ids_used:
-            matched = df[df["id"].astype(str) == wid]
-            if not matched.empty:
-                pool.append(matched.iloc[0].to_dict())
-
-    exp_acc = {}
-    for exp_name, stat in exp_stats.items():
-        total = stat.get("total", 0)
-        if total >= 3:
-            exp_acc[exp_name] = stat.get("correct", 0) / total
-    weak_exps = sorted(exp_acc, key=exp_acc.get)[:2]
-
-    if weak_exps:
-        key_pool = sample_questions(n=n_key_min * len(weak_exps), experiments=weak_exps)
-        for q in key_pool:
-            if str(q.get("id")) not in wrong_ids_used and len(pool) < count:
-                pool.append(q)
-
-    remaining = count - len(pool)
-    if remaining > 0:
-        existing_ids = {str(q.get("id")) for q in pool}
-        rand_pool = sample_questions(n=remaining + 30)
-        for q in rand_pool:
-            if str(q.get("id")) not in existing_ids and len(pool) < count:
-                pool.append(q)
-                existing_ids.add(str(q.get("id")))
-
-    random.shuffle(pool)
-    return pool[:count]
+    from utils.recommender import WeightedQuestionSampler
+    df = load_questions(get_active_questions_csv())
+    candidates = df.to_dict("records")
+    pref = st.session_state.get("diligence_preference", 20)
+    sampler = WeightedQuestionSampler(candidates, st.session_state, preference=pref)
+    return sampler.sample(count)
 
 
 def _calc_total_time_limit(pool):
     """计算总时限（秒）"""
     total = 0
-    exp_stats = st.session_state.get("experiment_stats", {})
+    exp_stats = st.session_state.get("topic_stats", {})
     for q in pool:
         qtype = q["type"]
         base = {"choice": 30, "judge": 20, "fill": 45}.get(qtype, 30)
         diff_factor = float(q.get("difficulty", 1)) * 1.0
-        exp_name = q.get("experiment", "")
+        exp_name = q.get("topic", "")
         stat = exp_stats.get(exp_name, {})
         exp_total = stat.get("total", 0)
         if exp_total >= 3:
@@ -347,6 +310,7 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
         current_combo=st.session_state.current_combo,
         user_answer=user_answer, correct_answer=q["answer"],
         is_timeout=is_timeout,
+        blank_count=int(q.get("blank_count", 1)),
     )
 
     st.session_state.round_score += result["delta"]
@@ -359,7 +323,7 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
         add_wrong_question(
             st.session_state, qid=q["id"], question_text=q.get("question", ""),
             user_answer=user_answer or ("[超时]" if is_timeout else "[未作答]"),
-            correct_answer=q["answer"], experiment=q.get("experiment", ""),
+            correct_answer=q["answer"], topic=q.get("topic", ""),
             question_type=q["type"],
             options={"A": q.get("option_a", ""), "B": q.get("option_b", ""),
                      "C": q.get("option_c", ""), "D": q.get("option_d", "")}
@@ -374,7 +338,7 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
         st.session_state.total_wrong += 1
     st.session_state.total_questions += 1
     st.session_state.max_combo_ever = max(st.session_state.max_combo_ever, result["new_combo"])
-    update_experiment_stats(st.session_state, q.get("experiment", ""), result["is_correct"], is_timeout)
+    update_topic_stats(st.session_state, q.get("topic", ""), result["is_correct"], is_timeout)
 
     st.session_state.show_feedback = True
     st.session_state.feedback_data = {
@@ -409,7 +373,7 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
         acc = (st.session_state.round_correct / total_ans * 100) if total_ans else 0
         add_round_history(st.session_state, mode="diligence", score=st.session_state.round_score,
                           accuracy=acc, max_combo=st.session_state.max_combo_in_round, count=total_ans)
-        save_session(st.session_state)
+        save_session(st.session_state, archive_name=st.session_state.get("current_archive"))
     else:
         st.session_state.start_ts = time.time()
 
@@ -420,7 +384,7 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
 st.set_page_config(page_title=f"答题练习 - {APP_NAME}", layout="wide")
 inject_gufeng_css()
 from utils.question_loader import load_questions
-_ = load_questions()  # 热缓存
+_ = load_questions(get_active_questions_csv())  # 热缓存
 _ensure_global_state()
 
 # Autorefresh: 每秒触发一次 rerun, 驱动倒计时
@@ -450,7 +414,8 @@ if not st.session_state.get("quiz_started", False):
 
         if mode == "diligence":
             st.subheader("⚙️ 选择档位")
-            dc1, dc2, dc3 = st.columns(3)
+            is_mobile = st.session_state.get("is_mobile", False)
+            dc1, dc2, dc3 = st.columns(1 if is_mobile else 3)
             with dc1:
                 with st.container(border=True):
                     st.markdown("### ⚡ 5题速检")
@@ -481,18 +446,23 @@ if not st.session_state.get("quiz_started", False):
             count = DILIGENCE_MODES[tier]
             st.markdown(f"已选 **{count} 题**")
 
+            pref_default = 20 if tier == "speed5" else 50
+            pref = st.slider("🎯 新题 ← → 错题", 0, 100, pref_default, 5, key="dil_pref",
+                             help="拉向左侧=多出新题，拉向右侧=多练错题")
+            st.session_state.diligence_preference = pref
+
             time_adjust = st.slider("⏱ 每题时间调整（秒）", -10, 10, 0, 1,
                                     help="正值延长时间，负值缩短时间")
             st.session_state.diligence_time_adjust = time_adjust
 
             experiment_filter = None
         elif mode == "reward":
-            st.subheader("🎯 选择练习实验")
+            st.subheader("🎯 选择练习章节")
             st.caption("按 1/2 : 1/3 : 1/6 权重分配 36 题")
             from utils.question_loader import load_questions
-            df = load_questions()
-            all_exps = sorted(set(df["experiment"].tolist())) if not df.empty else []
-            exp_stats = st.session_state.get("experiment_stats", {})
+            df = load_questions(get_active_questions_csv())
+            all_exps = sorted(set(df["topic"].tolist())) if not df.empty else []
+            exp_stats = st.session_state.get("topic_stats", {})
             exp_info = []
             for exp in all_exps:
                 stat = exp_stats.get(exp, {})
@@ -503,18 +473,18 @@ if not st.session_state.get("quiz_started", False):
                     "name": exp,
                     "total": exp_total,
                     "accuracy": exp_acc,
-                    "questions": len(df[df["experiment"] == exp]),
+                    "questions": len(df[df["topic"] == exp]),
                 })
             sel1, sel2, sel3 = st.columns(3)
             with sel1:
                 st.markdown("**🔴 主攻 (18题)**")
-                main_exp = st.selectbox("主攻实验", [e["name"] for e in exp_info], key="sel_main")
+                main_exp = st.selectbox("主攻章节", [e["name"] for e in exp_info], key="sel_main")
             with sel2:
                 st.markdown("**🟡 辅攻 (12题)**")
-                aux_exp = st.selectbox("辅攻实验", [e["name"] for e in exp_info if e["name"] != main_exp], key="sel_aux")
+                aux_exp = st.selectbox("辅攻章节", [e["name"] for e in exp_info if e["name"] != main_exp], key="sel_aux")
             with sel3:
                 st.markdown("**🟢 补充 (6题)**")
-                supp_exp = st.selectbox("补充实验", [e["name"] for e in exp_info if e["name"] not in (main_exp, aux_exp)], key="sel_supp")
+                supp_exp = st.selectbox("补充章节", [e["name"] for e in exp_info if e["name"] not in (main_exp, aux_exp)], key="sel_supp")
             st.session_state.reward_experiments = [main_exp, aux_exp, supp_exp]
             experiment_filter = None
             count = 36
@@ -528,12 +498,12 @@ if not st.session_state.get("quiz_started", False):
                     st.switch_page(os.path.join(APP_DIR, "app.py"))
                 st.stop()
             from collections import Counter
-            exp_dist = Counter(e.get("experiment", "其他") for e in wrong_list)
-            if exp_dist:
+            topic_dist = Counter(e.get("topic", "其他") for e in wrong_list)
+            if topic_dist:
                 st.markdown("#### 错题分布")
                 import pandas as pd
-                dist_df = pd.DataFrame({"实验": list(exp_dist.keys()), "错题数": list(exp_dist.values())})
-                st.bar_chart(dist_df.set_index("实验"))
+                dist_df = pd.DataFrame({"章节": list(topic_dist.keys()), "错题数": list(topic_dist.values())})
+                st.bar_chart(dist_df.set_index("章节"))
             count = st.slider("题目数量", 3, min(30, max(3, n_wrong)), min(10, n_wrong), 1)
             experiment_filter = None
 
@@ -586,7 +556,12 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
             "C": q.get("option_c", ""),
             "D": q.get("option_d", ""),
         }
-        cA, cB, cC, cD = st.columns(4)
+        is_mobile = st.session_state.get("is_mobile", False)
+        if is_mobile:
+            cA, cB = st.columns(2)
+            cC, cD = st.columns(2)
+        else:
+            cA, cB, cC, cD = st.columns(4)
         for col, label in [(cA, "A"), (cB, "B"), (cC, "C"), (cD, "D")]:
             with col:
                 opt_text = opts.get(label, "")
@@ -609,12 +584,27 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
                 st.rerun()
 
     elif qtype == "fill":
-        fill_key = f"dil_fill_{idx}"
-        user_input = st.text_input("请填空:", key=fill_key, placeholder="输入答案后提交")
-        if st.button("提交填空", key=f"dil_fill_btn_{idx}", use_container_width=True):
-            if user_input.strip():
-                _handle_diligence_submit(user_input.strip(), q, remaining_total)
-                st.rerun()
+        blank_count = int(q.get("blank_count", 1))
+        fill_hint_raw = q.get("fill_hint", "")
+        hints = [h.strip() for h in str(fill_hint_raw).split("|")] if fill_hint_raw else []
+
+        if blank_count <= 1:
+            placeholder = hints[0] if hints else "请输入答案"
+            user_input = st.text_input("填空:", key=f"dil_fill_{idx}", placeholder=placeholder)
+            if st.button("提交填空", key=f"dil_fill_btn_{idx}", width="stretch"):
+                if user_input.strip():
+                    _handle_diligence_submit(user_input.strip(), q, remaining_total)
+                    st.rerun()
+        else:
+            user_parts = []
+            for bi in range(blank_count):
+                hint = hints[bi] if bi < len(hints) else f"第{bi+1}空"
+                val = st.text_input(f"空{bi+1} - {hint}", key=f"dil_fill_{idx}_{bi}", placeholder=hint)
+                user_parts.append(val.strip() if val else "")
+            if st.button("提交", key=f"dil_fill_btn_{idx}", width="stretch"):
+                if any(p for p in user_parts):
+                    _handle_diligence_submit(user_parts, q, remaining_total)
+                    st.rerun()
 
     # ---- 顶部弹窗反馈 ----
     if st.session_state.get("show_feedback"):
@@ -645,11 +635,20 @@ if st.session_state.get("quiz_finished", False):
     st.success("🎉 答题完成!")
     st.title("🎉 本轮结束!")
 
-    metric_c1, metric_c2, metric_c3, metric_c4 = st.columns(4)
-    metric_c1.metric("🎯 总得分", f"{st.session_state.round_score:.1f}")
-    metric_c2.metric("✅ 正确率", f"{accuracy:.1f}%")
-    metric_c3.metric("🔥 最高连击", st.session_state.max_combo_in_round)
-    metric_c4.metric("📝 答题数", total_ans)
+    is_mobile = st.session_state.get("is_mobile", False)
+    if is_mobile:
+        m1, m2 = st.columns(2)
+        m3, m4 = st.columns(2)
+        m1.metric("🎯 总得分", f"{st.session_state.round_score:.1f}")
+        m2.metric("✅ 正确率", f"{accuracy:.1f}%")
+        m3.metric("🔥 最高连击", st.session_state.max_combo_in_round)
+        m4.metric("📝 答题数", total_ans)
+    else:
+        metric_c1, metric_c2, metric_c3, metric_c4 = st.columns(4)
+        metric_c1.metric("🎯 总得分", f"{st.session_state.round_score:.1f}")
+        metric_c2.metric("✅ 正确率", f"{accuracy:.1f}%")
+        metric_c3.metric("🔥 最高连击", st.session_state.max_combo_in_round)
+        metric_c4.metric("📝 答题数", total_ans)
 
     st.markdown("---")
     st.subheader("📊 本轮错题")
@@ -666,7 +665,7 @@ if st.session_state.get("quiz_finished", False):
                 else:
                     st.write(f"**你的答案:** {entry['user_answer']}")
                     st.write(f"**正确答案:** {entry['correct_answer']}")
-                st.write(f"**所属实验:** {entry.get('experiment', '')}")
+                st.write(f"**所属章节:** {entry.get('topic', '')}")
                 st.write(f"**错误次数:** {entry.get('wrong_count', 1)}")
     else:
         st.success("🏆 本轮零失误! 完美答题!")
@@ -750,7 +749,13 @@ else:
             st.session_state.selected_option = None
 
         st.markdown("**请选择答案:**")
-        cols = st.columns(4)
+        is_mobile = st.session_state.get("is_mobile", False)
+        if is_mobile:
+            cA, cB = st.columns(2)
+            cC, cD = st.columns(2)
+            cols = [cA, cB, cC, cD]
+        else:
+            cols = st.columns(4)
         labels = ["A", "B", "C", "D"]
         options = {
             "A": q.get("option_a", ""),
@@ -785,8 +790,20 @@ else:
             user_answer = st.radio("判断对错:", ["对", "错"], index=None, horizontal=True,
                                     label_visibility="hidden")
         elif qtype == "fill":
-            user_answer = st.text_input("请填空:", placeholder="输入答案后提交",
-                                        label_visibility="hidden")
+            blank_count = int(q.get("blank_count", 1))
+            fill_hint_raw = q.get("fill_hint", "")
+            hints = [h.strip() for h in str(fill_hint_raw).split("|")] if fill_hint_raw else []
+
+            if blank_count <= 1:
+                placeholder = hints[0] if hints else "请输入答案"
+                user_answer = st.text_input("请填空:", key=f"ans_{idx}", placeholder=placeholder)
+            else:
+                user_parts = []
+                for bi in range(blank_count):
+                    hint = hints[bi] if bi < len(hints) else f"第{bi+1}空"
+                    val = st.text_input(f"空{bi+1} - {hint}", key=f"ans_{idx}_{bi}", placeholder=hint)
+                    user_parts.append(val.strip() if val else "")
+                user_answer = user_parts
         elif qtype == "subjective":
             user_answer = st.text_area("请简述:", placeholder="输入你的答案", height=120,
                                         label_visibility="hidden")
@@ -797,6 +814,8 @@ else:
         if submitted:
             if qtype == "choice":
                 _handle_submit(str(st.session_state.get("selected_option") or ""))
+            elif isinstance(user_answer, list):
+                _handle_submit(user_answer)
             elif user_answer is not None:
                 _handle_submit(str(user_answer))
             st.rerun()

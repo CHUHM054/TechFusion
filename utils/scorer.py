@@ -82,36 +82,52 @@ def check_choice(user_answer, correct_answer):
 FILL_SIMILARITY_THRESHOLD = 0.85
 
 
-def check_fill(user_answer, correct_answer):
-    """填空题: 先精确匹配, 再 difflib 相似度 >=0.85"""
-    user = normalize(user_answer)
-    if not user:
-        return False
-    # 1) 精确匹配任一等价答案
-    for ans in str(correct_answer).split("|"):
-        if normalize(ans) == user:
+def check_fill(user_answer, correct_answer, blank_count=1):
+    """填空题：多空支持 || 分空，| 分等价答案"""
+    if blank_count <= 1:
+        user = normalize(user_answer) if isinstance(user_answer, str) else normalize(" ".join(user_answer))
+        correct_parts = str(correct_answer).split("|")
+        for ans in correct_parts:
+            if normalize(ans) == user:
+                return True
+        first = normalize(correct_parts[0])
+        if first and SequenceMatcher(None, user, first).ratio() >= FILL_SIMILARITY_THRESHOLD:
             return True
-    # 2) 相似度匹配 (与第一个标准答案比较)
-    first = normalize(str(correct_answer).split("|")[0])
-    if first and SequenceMatcher(None, user, first).ratio() >= FILL_SIMILARITY_THRESHOLD:
-        return True
-    # ---- 多空拆分匹配：用户用逗号/空格/顿号分隔多值 ----
-    correct_parts = str(correct_answer).split("|")
-    user_parts = [normalize(p) for p in re.split(r'[,，、\s]+', user_answer) if p.strip()]
-    if len(user_parts) > 1:
-        all_matched = True
-        for up in user_parts:
-            matched = any(
-                normalize(cp) == up or
-                SequenceMatcher(None, up, normalize(cp)).ratio() >= FILL_SIMILARITY_THRESHOLD
-                for cp in correct_parts
+        user_parts = [p for p in re.split(r'[,，、\s]+', user) if p]
+        if len(user_parts) > 1:
+            return all(
+                any(normalize(cp) == up or SequenceMatcher(None, up, normalize(cp)).ratio() >= FILL_SIMILARITY_THRESHOLD
+                    for cp in correct_parts)
+                for up in user_parts
             )
-            if not matched:
-                all_matched = False
-                break
-        if all_matched:
-            return True
-    return False
+        return False
+
+    blank_groups = str(correct_answer).split("||")
+    if len(blank_groups) != blank_count:
+        blank_groups = str(correct_answer).split("||")
+    if isinstance(user_answer, list):
+        user_parts = user_answer
+    else:
+        user_parts = [p.strip() for p in str(user_answer).split()]
+    while len(user_parts) < blank_count:
+        user_parts.append("")
+
+    for i in range(blank_count):
+        up = normalize(user_parts[i]) if i < len(user_parts) else ""
+        group = blank_groups[i] if i < len(blank_groups) else ""
+        synonyms = [s.strip() for s in group.split("|") if s.strip()]
+        if not synonyms:
+            if up:
+                return False
+            continue
+        matched = any(
+            normalize(syn) == up or
+            SequenceMatcher(None, up, normalize(syn)).ratio() >= FILL_SIMILARITY_THRESHOLD
+            for syn in synonyms
+        )
+        if not matched:
+            return False
+    return True
 
 
 # ========== 主观题参考评分 ==========
@@ -138,7 +154,7 @@ def similarity_score(user_answer, reference):
 # ========== 核心计分函数 ==========
 def score_question(qtype, difficulty, time_limit, time_spent,
                    current_combo, user_answer, correct_answer,
-                   is_timeout=False):
+                   is_timeout=False, **kwargs):
     """
     计算单题得分。
 
@@ -151,6 +167,7 @@ def score_question(qtype, difficulty, time_limit, time_spent,
         user_answer: 用户作答字符串
         correct_answer: 标准答案
         is_timeout: 是否超时 (答题页判断后传入)
+        **kwargs: 扩展参数 (如 blank_count)
 
     返回:
         dict: {
@@ -165,7 +182,8 @@ def score_question(qtype, difficulty, time_limit, time_spent,
     if qtype in ("choice", "judge"):
         is_correct = check_choice(user_answer, correct_answer)
     elif qtype == "fill":
-        is_correct = check_fill(user_answer, correct_answer)
+        is_correct = check_fill(user_answer, correct_answer,
+                                blank_count=kwargs.get("blank_count", 1))
     else:  # subjective 不自动判分
         is_correct = False
 

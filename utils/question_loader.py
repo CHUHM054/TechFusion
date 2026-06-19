@@ -12,7 +12,7 @@ try:
 except (ImportError, OSError):
     _HAS_STREAMLIT = False
 
-from config import QUESTIONS_CSV
+from config import get_active_questions_csv
 
 VALID_TYPES = {"choice", "judge", "fill", "subjective"}
 
@@ -26,15 +26,21 @@ def _load_raw(csv_path: str) -> pd.DataFrame:
 
 def _load_questions_impl(csv_path=None):
     if csv_path is None:
-        csv_path = QUESTIONS_CSV
+        csv_path = get_active_questions_csv()
     if not os.path.exists(csv_path):
         return pd.DataFrame()
     df = _load_raw(csv_path)
     df.columns = [c.strip() for c in df.columns]
+    if "experiment" in df.columns and "topic" not in df.columns:
+        df["topic"] = df["experiment"]
     if "type" in df.columns:
         df = df[df["type"].isin(VALID_TYPES)].copy()
     if "id" in df.columns:
         df["id"] = df["id"].astype(str)
+    if "blank_count" in df.columns:
+        df["blank_count"] = df["blank_count"].fillna(1).astype(int)
+    if "fill_hint" in df.columns:
+        df["fill_hint"] = df["fill_hint"].fillna("")
     return df
 
 if _HAS_STREAMLIT:
@@ -50,20 +56,23 @@ def sample_questions(
     n: int = 15,
     types: Optional[list] = None,
     experiments: Optional[list] = None,
+    topics: Optional[list] = None,
     difficulty: Optional[int] = None,
     exclude_ids: Optional[list] = None,
     seed: Optional[int] = None,
     csv_path: str = None,
 ) -> list:
     """从题库抽取 n 道题，返回 list[dict]"""
+    if experiments is not None and topics is None:
+        topics = experiments
     df = load_questions(csv_path)
     if df.empty:
         return []
     mask = pd.Series(True, index=df.index)
     if types and "type" in df.columns:
         mask &= df["type"].isin(types)
-    if experiments and "experiment" in df.columns:
-        mask &= df["experiment"].isin(experiments)
+    if topics and "topic" in df.columns:
+        mask &= df["topic"].isin(topics)
     if difficulty is not None and "difficulty" in df.columns:
         mask &= df["difficulty"] == difficulty
     if exclude_ids and "id" in df.columns:

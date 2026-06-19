@@ -1,0 +1,6 @@
+{
+  "active": "物理实验",
+  "subjects": [
+    {"id": "physics", "name": "物理实验", "path": "物理实验", "icon": "🔬"}
+  ]
+}

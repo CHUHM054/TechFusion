@@ -14,6 +14,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [Step 0/3] Cleaning stale cache...
+for /d /r "%~dp0" %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d" 2>nul
+
 if not exist "%~dp0venv" (
     echo [Step 1/3] Creating virtual environment...
     python -m venv "%~dp0venv"

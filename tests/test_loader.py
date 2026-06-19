@@ -36,7 +36,7 @@ class TestLoader(unittest.TestCase):
 
 class TestValidate(unittest.TestCase):
     def test_valid_csv(self):
-        csv_path = os.path.join(APP_DIR, "data", "questions.csv")
+        csv_path = os.path.join(APP_DIR, "data", "subjects", "物理实验", "questions.csv")
         errors, total, experiments = validate(csv_path)
         self.assertEqual(len(errors), 0, f"errors: {errors}")
         self.assertGreater(total, 0)
