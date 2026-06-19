@@ -251,7 +251,8 @@ if full_mode:
         except Exception:
             exp_total = 16
         st.metric("章节覆盖", f"{exp_covered}/{exp_total}")
-        st.progress(exp_covered / max(exp_total, 1))
+        ratio = max(0.0, min(1.0, exp_covered / max(exp_total, 1)))
+        st.progress(ratio)
 
 st.divider()
 
