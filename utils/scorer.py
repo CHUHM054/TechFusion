@@ -1,0 +1,221 @@
+# -*- coding: utf-8 -*-
+"""计分引擎——纯函数, 无副作用
+评分维度:
+  基础分 = difficulty × TYPE_WEIGHT[type] × BASE_SCORE_MULTIPLIER
+  时间加权 = 基础分 × TIME_WEIGHT × (1 - 用时/时限)
+  连击加分 = 阶梯式 (3连+0.5 / 5连+1 / 7连+2 / 10连+3) —— 答对后先+1连击再判断
+  答错惩罚 = -1 分 + 连击归零
+  超时惩罚 = -1 分 + 每超10秒额外-1 (上限-5)
+"""
+import re
+from difflib import SequenceMatcher
+
+from config import (
+    TYPE_WEIGHT, BASE_SCORE_MULTIPLIER, TIME_WEIGHT,
+    COMBO_BONUS, PENALTY_WRONG, PENALTY_TIMEOUT_BASE,
+    PENALTY_TIMEOUT_PER_10S, PENALTY_TIMEOUT_CAP,
+)
+
+# ========== 文本标准化 ==========
+# 全角 → 半角字符映射表 (dict 形式避免字符串拼接歧义)
+_FULLWIDTH_MAP = str.maketrans({
+    # 大写字母 Ａ-Ｚ
+    0xFF21: 'A', 0xFF22: 'B', 0xFF23: 'C', 0xFF24: 'D', 0xFF25: 'E',
+    0xFF26: 'F', 0xFF27: 'G', 0xFF28: 'H', 0xFF29: 'I', 0xFF2A: 'J',
+    0xFF2B: 'K', 0xFF2C: 'L', 0xFF2D: 'M', 0xFF2E: 'N', 0xFF2F: 'O',
+    0xFF30: 'P', 0xFF31: 'Q', 0xFF32: 'R', 0xFF33: 'S', 0xFF34: 'T',
+    0xFF35: 'U', 0xFF36: 'V', 0xFF37: 'W', 0xFF38: 'X', 0xFF39: 'Y',
+    0xFF3A: 'Z',
+    # 小写字母 ａ-ｚ
+    0xFF41: 'a', 0xFF42: 'b', 0xFF43: 'c', 0xFF44: 'd', 0xFF45: 'e',
+    0xFF46: 'f', 0xFF47: 'g', 0xFF48: 'h', 0xFF49: 'i', 0xFF4A: 'j',
+    0xFF4B: 'k', 0xFF4C: 'l', 0xFF4D: 'm', 0xFF4E: 'n', 0xFF4F: 'o',
+    0xFF50: 'p', 0xFF51: 'q', 0xFF52: 'r', 0xFF53: 's', 0xFF54: 't',
+    0xFF55: 'u', 0xFF56: 'v', 0xFF57: 'w', 0xFF58: 'x', 0xFF59: 'y',
+    0xFF5A: 'z',
+    # 常见中文标点 → 半角对应
+    '\uFF0C': ',',  # ，
+    '\u3002': '.',  # 。
+    '\uFF01': '!',  # ！
+    '\uFF1F': '?',  # ？
+    '\u3001': ',',  # 、 (顿号映射为逗号)
+    '\uFF1B': ';',  # ；
+    '\uFF1A': ':',  # ：
+    '\u201C': '"',  # “
+    '\u201D': '"',  # ”
+    '\u2018': "'",  # ‘
+    '\u2019': "'",  # ’
+    '\uFF08': '(',  # （
+    '\uFF09': ')',  # ）
+    '\u3010': '[',  # 【
+    '\u3011': ']',  # 】
+    # 全角空格
+    '\u3000': ' ',
+})
+
+
+def normalize(text):
+    """标准化用户输入: 去空格+全角转半角+统一中文标点+小写"""
+    if not isinstance(text, str):
+        return ""
+    t = text.strip()
+    t = t.translate(_FULLWIDTH_MAP)
+    t = re.sub(r"\s+", "", t)
+    t = re.sub(r'\$', '', t)
+    t = re.sub(r'\\[a-zA-Z]+', '', t)
+    t = re.sub(r'[_^]\{', '', t)
+    t = re.sub(r'\}', '', t)
+    return t.lower()
+
+
+# ========== 客观题判题 ==========
+def check_choice(user_answer, correct_answer):
+    """选择/判断题: 等价答案用 | 分隔"""
+    user = normalize(user_answer)
+    for ans in str(correct_answer).split("|"):
+        if normalize(ans) == user:
+            return True
+    return False
+
+
+# ========== 填空题判题 ==========
+FILL_SIMILARITY_THRESHOLD = 0.85
+
+
+def check_fill(user_answer, correct_answer):
+    """填空题: 先精确匹配, 再 difflib 相似度 >=0.85"""
+    user = normalize(user_answer)
+    if not user:
+        return False
+    # 1) 精确匹配任一等价答案
+    for ans in str(correct_answer).split("|"):
+        if normalize(ans) == user:
+            return True
+    # 2) 相似度匹配 (与第一个标准答案比较)
+    first = normalize(str(correct_answer).split("|")[0])
+    if first and SequenceMatcher(None, user, first).ratio() >= FILL_SIMILARITY_THRESHOLD:
+        return True
+    # ---- 多空拆分匹配：用户用逗号/空格/顿号分隔多值 ----
+    correct_parts = str(correct_answer).split("|")
+    user_parts = [normalize(p) for p in re.split(r'[,，、\s]+', user_answer) if p.strip()]
+    if len(user_parts) > 1:
+        all_matched = True
+        for up in user_parts:
+            matched = any(
+                normalize(cp) == up or
+                SequenceMatcher(None, up, normalize(cp)).ratio() >= FILL_SIMILARITY_THRESHOLD
+                for cp in correct_parts
+            )
+            if not matched:
+                all_matched = False
+                break
+        if all_matched:
+            return True
+    return False
+
+
+# ========== 主观题参考评分 ==========
+def count_keyword_hits(user_answer, keywords):
+    """
+    统计关键词命中数。keywords 形如 "弹性模量,胡克定律,杨氏模量"。
+    返回 (命中数, 总关键词数)。
+    """
+    if not keywords or not isinstance(keywords, str):
+        return 0, 0
+    user = normalize(user_answer)
+    kw_list = [normalize(k.strip()) for k in keywords.split(",") if k.strip()]
+    hits = sum(1 for kw in kw_list if kw and kw in user)
+    return hits, len(kw_list)
+
+
+def similarity_score(user_answer, reference):
+    """返回 0~1 的文本相似度, 仅用于主观题参考"""
+    return SequenceMatcher(
+        None, normalize(user_answer), normalize(reference)
+    ).ratio()
+
+
+# ========== 核心计分函数 ==========
+def score_question(qtype, difficulty, time_limit, time_spent,
+                   current_combo, user_answer, correct_answer,
+                   is_timeout=False):
+    """
+    计算单题得分。
+
+    参数:
+        qtype: 'choice' | 'judge' | 'fill' | 'subjective'
+        difficulty: 1-3
+        time_limit: 时限 (秒)
+        time_spent: 实际用时 (秒)
+        current_combo: 答题前连击数
+        user_answer: 用户作答字符串
+        correct_answer: 标准答案
+        is_timeout: 是否超时 (答题页判断后传入)
+
+    返回:
+        dict: {
+            "delta": float,        # 本题得分变化 (正加分, 负扣分)
+            "is_correct": bool,     # 是否判为正确
+            "new_combo": int,       # 答题后新连击数
+            "reason": str,          # 中文说明, 展示给用户
+            "timeout_penalty": float,  # 超时额外扣分
+        }
+    """
+    # ---- 判断正误 ----
+    if qtype in ("choice", "judge"):
+        is_correct = check_choice(user_answer, correct_answer)
+    elif qtype == "fill":
+        is_correct = check_fill(user_answer, correct_answer)
+    else:  # subjective 不自动判分
+        is_correct = False
+
+    # ---- 超时检查 ----
+    if is_timeout:
+        overflow = max(0.0, time_spent - time_limit)
+        extra_steps = int(overflow // 10)
+        extra_penalty = extra_steps * PENALTY_TIMEOUT_PER_10S
+        # 不低于上限 (PENALTY_TIMEOUT_CAP 是负数)
+        total_penalty = PENALTY_TIMEOUT_BASE + extra_penalty
+        total_penalty = max(total_penalty, PENALTY_TIMEOUT_CAP)
+        return {
+            "delta": round(total_penalty, 2),
+            "is_correct": False,
+            "new_combo": 0,
+            "reason": f"⏱️ 超时! 扣{abs(PENALTY_TIMEOUT_BASE):.1f}分"
+                      f"+超时额外{abs(extra_penalty):.1f}分"
+                      f"(上限{abs(PENALTY_TIMEOUT_CAP):.1f})",
+            "timeout_penalty": extra_penalty,
+        }
+
+    # ---- 答对 ----
+    if is_correct:
+        base = float(difficulty) * TYPE_WEIGHT.get(qtype, 1.0) * BASE_SCORE_MULTIPLIER
+        time_factor = max(0.0, 1.0 - time_spent / time_limit) if time_limit > 0 else 0.0
+        time_bonus = base * TIME_WEIGHT * time_factor
+
+        new_combo = current_combo + 1
+        combo_bonus = 0.0
+        # 找到满足条件的最大加分
+        for threshold in sorted(COMBO_BONUS.keys(), reverse=True):
+            if new_combo >= threshold:
+                combo_bonus = COMBO_BONUS[threshold]
+                break
+
+        delta = round(base + time_bonus + combo_bonus, 2)
+        return {
+            "delta": delta,
+            "is_correct": True,
+            "new_combo": new_combo,
+            "reason": f"✅ 正确! 基础分+{base:.1f} 时间奖励+{time_bonus:.1f}"
+                      f" 连击+{combo_bonus:.1f} ({new_combo}连)",
+            "timeout_penalty": 0.0,
+        }
+
+    # ---- 答错 ----
+    return {
+        "delta": PENALTY_WRONG,
+        "is_correct": False,
+        "new_combo": 0,
+        "reason": f"❌ 错误! 正确答案: {correct_answer} 扣{abs(PENALTY_WRONG):.1f}分, 连击归零",
+        "timeout_penalty": 0.0,
+    }
