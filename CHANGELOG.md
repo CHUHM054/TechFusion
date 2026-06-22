@@ -1,5 +1,77 @@
 # 系统更新日志
 
+## Ver 1.5.5 (Build 23) - 2026-06-21
+### 🐛 Bug 修复
+- 修复答题页「加载完成」状态闪烁残留问题
+- 修复题库导入页缺少 CSV 格式教程问题
+
+### ✨ 体验优化
+- 加载提示改为自动消失 spinner
+- 导入页增加格式教程 dialog
+
+## Ver 1.5.4 (Build 22) - 2026-06-21
+### 🐛 Bug 修复
+- 修复 Toast 重叠问题
+- 修复存档加载状态不消失问题
+- 修复顶部文字截断问题
+
+### ✨ 体验优化
+- 题库管理界面重构
+- 全局新中式布局优化
+
+## Ver 1.5.3 (Build 21) - 2026-06-21
+### 🐛 Bug 修复
+- 修复勤能补拙模式选择题选项为数值时导致 `TypeError: 'float' object is not subscriptable` 崩溃
+- 优化 Toast 显示：答对为绿色 ✅、答错为红色 ❌、超时黄色 ⚠️，避免多个 Toast 重叠
+
+## Ver 1.5.2 (Build 20) - 2026-06-21
+### 🐛 Bug 修复：修复 Toast 提示不明显、停留时间太短的问题
+### ✨ 体验优化：localStorage 读写改为 @st.fragment(parallel=True) 局部并行刷新；关键加载路径使用 st.status 显示状态；减少不必要的 st.rerun()
+
+## Ver 1.5.1 (Build 19) - 2026-06-21
+### 🐛 Bug 修复
+- 替换废弃 API：`utils/localstorage.py` 中 `st.components.v1.html` → `st.html`
+- 修复 `st.toast` icon 参数导致 `StreamlitAPIException`：移除非 emoji 图标字符 `✓`/`✗`/`◷`/`✦`
+
+## Ver 1.5.0 (Build 18) - 2026-06-21
+### 🎨 新中式界面细节重塑
+- 低饱和度新中式色板：墨色 #2C1810 / 牙白 #FAF8F3 / 浅绛 #B85C5C / 竹青 #5D8C87 / 黛蓝 #2F5D62
+- 字体层级重排：标题衬线、正文无衬线，降低字号、增大行高
+- 组件细节打磨：细边框卡片、方角按钮、微阴影、印章式标签
+- 答题区布局重构：题目独立卡片、状态胶囊、结果提示折叠
+
+### 🔔 Toast 通知机制
+- 答对/答错/超时改为右上角固定悬浮 Toast，3 秒自动消失
+- 答题区不再被大块结果提示占用，仅保留折叠的"查看解析"
+- Emoji 降级为 CSS 印章图标或纯文字
+
+### 🚀 Streamlit 升级 1.58.0
+- `requirements.txt` 升级至 `streamlit>=1.58.0`
+- 本地存档 1.31.0-1.58.0 更新日志摘要：`docs/streamlit-changelog-summaries/`
+- 落地 `st.pagination`：错题本/排行榜分页
+- 整理可落地特性建议：README.md
+
+### 📝 题库格式规范文档
+- 新增 `docs/题库格式规范.md`
+- 更新 `pages/04_载入题库.py` 页面内规范说明
+- 明确 `experiment` 章节、`knowledge` 知识点字段
+- 完善填空题 `blank_count`/`fill_hint`/`||`/`|` 特殊格式说明
+
+## Ver 1.4.0 (Build 17) - 2026-06-21
+### 💾 本地数据持久化
+- 新增 `utils/localstorage.py`，容器休眠后数据不丢失
+- 访客/存档数据隔离存储
+
+### 📁 存档机制重构
+- 侧边栏卡片式存档列表
+- 首次进入=访客，无密码存档自动激活
+- 一人一存档限制
+- 新增 `pages/05_排行榜.py`
+
+### 🧩 字段语义清晰化
+- `questions.csv` 中 `topic` 列改为 `knowledge`
+- `experiment` 明确为章节列
+
 ## Ver 1.3.0 (Build 11) - 2026-06-19
 ### 🎨 雅致新中式界面焕新
 - 全新色彩体系：宫墙红 #A83232 / 鎏金 #C4946B / 宣纸米 #FDFBF7

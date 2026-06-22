@@ -7,11 +7,11 @@ import os
 import pandas as pd
 
 REQUIRED_COLS = [
-    "id", "type", "topic", "difficulty",
+    "id", "type", "knowledge", "difficulty",
     "question", "answer", "explanation", "keywords", "source",
     "option_a", "option_b", "option_c", "option_d",
 ]
-VALID_TYPES = {"choice", "judge", "fill", "subjective"}
+VALID_TYPES = {"choice", "fill"}
 VALID_ANSWER_CHARS = {"A", "B", "C", "D"}
 VALID_JUDGE_ANSWERS = {"对", "错"}
 
@@ -30,14 +30,16 @@ def validate(csv_path: str):
         return errors, 0, 0
 
     df.columns = [c.strip() for c in df.columns]
-    if "experiment" in df.columns and "topic" not in df.columns:
-        df["topic"] = df["experiment"]
+    # 向后兼容旧列名
+    for old_k, new_k in [("topic", "knowledge"), ("experiment", "knowledge")]:
+        if old_k in df.columns and new_k not in df.columns:
+            df[new_k] = df[old_k]
     for col in REQUIRED_COLS:
         if col not in df.columns:
             errors.append(f"[MISSING] 缺少必填列: {col}")
 
     if errors:
-        return errors, len(df), df["topic"].nunique() if "topic" in df.columns else 0
+        return errors, len(df), df["knowledge"].nunique() if "knowledge" in df.columns else 0
 
     for idx, row in df.iterrows():
         qid = str(row.get("id", idx))
@@ -51,13 +53,7 @@ def validate(csv_path: str):
                 a = a.strip()
                 if a not in VALID_ANSWER_CHARS:
                     errors.append(f"[row {idx+2}] id={qid}: 选择题答案 '{a}' 不合法")
-        # judge 答案校验
-        if row["type"] == "judge":
-            answers = str(row["answer"]).split("|")
-            for a in answers:
-                a = a.strip()
-                if a not in VALID_JUDGE_ANSWERS:
-                    errors.append(f"[row {idx+2}] id={qid}: 判断题答案 '{a}' 不合法")
+
         # fill 答案校验
         if row["type"] == "fill":
             answer_str = str(row.get("answer", ""))
@@ -67,16 +63,30 @@ def validate(csv_path: str):
                 non_empty = [a.strip() for a in answer_str.split("|") if a.strip()]
                 if not non_empty:
                     errors.append(f"[row {idx+2}] id={qid}: 填空题答案至少需要一个非空等价答案")
+            # blank_count 校验
+            bc = row.get("blank_count", "")
+            try:
+                if pd.isna(bc) or str(bc).strip() == "":
+                    errors.append(f"[row {idx+2}] id={qid}: 填空题缺少blank_count")
+            except:
+                errors.append(f"[row {idx+2}] id={qid}: 填空题缺少blank_count")
+            # blank_count 校验
+            bc = row.get("blank_count", "")
+            try:
+                if pd.isna(bc) or str(bc).strip() == "":
+                    errors.append(f"[row {idx+2}] id={qid}: 填空题缺少blank_count")
+            except:
+                errors.append(f"[row {idx+2}] id={qid}: 填空题缺少blank_count")
         # difficulty 校验
         try:
             d = int(row["difficulty"])
-            if d not in {1, 2, 3}:
-                errors.append(f"[row {idx+2}] id={qid}: difficulty={d} 应为 1/2/3")
+            if d not in {1, 2, 3, 4, 5}:
+                errors.append(f"[row {idx+2}] id={qid}: difficulty={d} 应为 1-5")
         except (ValueError, TypeError):
             errors.append(f"[row {idx+2}] id={qid}: difficulty 应为整数")
 
     total = len(df)
-    topics = df["topic"].nunique() if "topic" in df.columns else 0
+    topics = df["knowledge"].nunique() if "knowledge" in df.columns else 0
     return errors, total, topics
 
 
@@ -86,7 +96,7 @@ if __name__ == "__main__":
     else:
         csv_file = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            "..", "data", "questions.csv",
+            "..", "data", "subjects", "物理实验", "questions.csv",
         )
     errors, total, topics = validate(csv_file)
     print("=" * 50)
@@ -103,7 +113,7 @@ if __name__ == "__main__":
         df = pd.read_csv(csv_file, encoding="utf-8-sig")
         print(f"\n--- 题型分布 ---")
         tc = df['type'].value_counts()
-        for t in ['choice', 'judge', 'fill']:
+        for t in ['choice', 'fill']:
             c = tc.get(t, 0)
             print(f"  {t}: {c} ({c/total*100:.0f}%)")
 
@@ -113,17 +123,18 @@ if __name__ == "__main__":
             print(f"  难度{d}: {c} ({c/total*100:.0f}%)")
 
         print(f"\n--- 每章节题型分布 ---")
-        for exp, grp in df.groupby('topic'):
+        # 按experiment字段分组（如果存在），否则按knowledge分组
+        group_col = 'experiment' if 'experiment' in df.columns else 'knowledge'
+        for exp, grp in df.groupby(group_col):
             etc = grp['type'].value_counts()
             edc = grp['difficulty'].value_counts()
             choice_n = etc.get('choice', 0)
-            judge_n = etc.get('judge', 0)
             fill_n = etc.get('fill', 0)
             d1 = edc.get(1, 0)
             d2 = edc.get(2, 0)
             d3 = edc.get(3, 0)
-            ok = "✓" if len(grp) >= 10 and choice_n >= 3 and fill_n >= 2 and judge_n >= 1 else "⚠"
-            print(f"  {ok} {exp:25s} total={len(grp):3d}  C={choice_n} J={judge_n} F={fill_n}  d1={d1} d2={d2} d3={d3}")
+            ok = "✓" if len(grp) >= 10 and choice_n >= 3 and fill_n >= 2 else "⚠"
+            print(f"  {ok} {exp:25s} total={len(grp):3d}  C={choice_n} F={fill_n}  d1={d1} d2={d2} d3={d3}")
     except Exception as e:
         print(f"  [统计失败] {e}")
 

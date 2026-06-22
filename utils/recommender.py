@@ -22,7 +22,7 @@ class WeightedQuestionSampler:
             self.recent_ids.update(str(x) for x in round_ids)
         self._topic_total = {}
         for q in candidates:
-            t = q.get("topic", q.get("experiment", ""))
+            t = q.get("experiment", "")
             self._topic_total[t] = self._topic_total.get(t, 0) + 1
 
     def _wrong_bonus(self, q):
@@ -32,7 +32,7 @@ class WeightedQuestionSampler:
 
     def _importance(self, q):
         diff = int(q.get("difficulty", 1))
-        t = q.get("topic", q.get("experiment", ""))
+        t = q.get("experiment", "")
         if "绪论" in str(t):
             return 1.0
         if diff >= 3:
@@ -40,7 +40,7 @@ class WeightedQuestionSampler:
         return 0.5
 
     def _coverage_gap(self, q):
-        t = q.get("topic", q.get("experiment", ""))
+        t = q.get("experiment", "")
         total = self._topic_total.get(t, 1)
         stat = self.topic_stats.get(t, {})
         done = stat.get("total", 0)
@@ -52,7 +52,7 @@ class WeightedQuestionSampler:
         return 0.0
 
     def _weakness(self, q):
-        t = q.get("topic", q.get("experiment", ""))
+        t = q.get("experiment", "")
         stat = self.topic_stats.get(t, {})
         total = stat.get("total", 0)
         if total < 3:

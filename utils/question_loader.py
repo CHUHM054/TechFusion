@@ -31,8 +31,14 @@ def _load_questions_impl(csv_path=None):
         return pd.DataFrame()
     df = _load_raw(csv_path)
     df.columns = [c.strip() for c in df.columns]
-    if "experiment" in df.columns and "topic" not in df.columns:
-        df["topic"] = df["experiment"]
+    # 旧 CSV 有 topic 列时自动映射为 knowledge
+    if "topic" in df.columns and "knowledge" not in df.columns:
+        df["knowledge"] = df["topic"]
+    # 双向兼容：experiment 和 knowledge 互相补全
+    if "experiment" not in df.columns and "knowledge" in df.columns:
+        df["experiment"] = df["knowledge"]
+    if "knowledge" not in df.columns and "experiment" in df.columns:
+        df["knowledge"] = df["experiment"]
     if "type" in df.columns:
         df = df[df["type"].isin(VALID_TYPES)].copy()
     if "id" in df.columns:
@@ -62,17 +68,30 @@ def sample_questions(
     seed: Optional[int] = None,
     csv_path: str = None,
 ) -> list:
-    """从题库抽取 n 道题，返回 list[dict]"""
-    if experiments is not None and topics is None:
-        topics = experiments
+    """从题库抽取 n 道题，返回 list[dict]
+
+    - experiments: 按章节 (experiment 列) 筛选
+    - topics: 按知识点 (knowledge 列) 筛选
+    两者独立判断，列不存在时自动回退到另一列。
+    """
     df = load_questions(csv_path)
     if df.empty:
         return []
     mask = pd.Series(True, index=df.index)
     if types and "type" in df.columns:
         mask &= df["type"].isin(types)
-    if topics and "topic" in df.columns:
-        mask &= df["topic"].isin(topics)
+    # 章节筛选 (优先用 experiment 列，否则回退到 knowledge)
+    if experiments:
+        if "experiment" in df.columns:
+            mask &= df["experiment"].isin(experiments)
+        elif "knowledge" in df.columns:
+            mask &= df["knowledge"].isin(experiments)
+    # 知识点筛选 (优先用 knowledge 列，否则回退到 experiment)
+    if topics:
+        if "knowledge" in df.columns:
+            mask &= df["knowledge"].isin(topics)
+        elif "experiment" in df.columns:
+            mask &= df["experiment"].isin(topics)
     if difficulty is not None and "difficulty" in df.columns:
         mask &= df["difficulty"] == difficulty
     if exclude_ids and "id" in df.columns:

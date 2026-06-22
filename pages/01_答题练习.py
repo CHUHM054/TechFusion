@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """答题练习页 —— 4 种模式 + 倒计时 + 计分
 
 session_state 关键字段说明:
@@ -65,6 +65,7 @@ def _init_quiz_state():
     st.session_state.last_user_answer = ""  # 上题用户答案
     st.session_state.recent_results = []  # 最近5题判题摘要
     st.session_state.wrong_ids_this_round = set()
+    st.session_state._last_toast_key = None  # 新一轮重置 Toast 防重标记
     if "recent_pool_ids" not in st.session_state:
         st.session_state.recent_pool_ids = []
 
@@ -89,6 +90,36 @@ def _time_limit_for_qtype(qtype):
         "fill": TIME_LIMIT_FILL,
         "subjective": TIME_LIMIT_FILL,
     }.get(qtype, TIME_LIMIT_CHOICE)
+
+
+def _show_toast_once(message, toast_key, kind="info"):
+    """显示 Toast（固定 4 秒），并通过 session_state 标记防止 rerun 重复或覆盖
+
+    kind: success / error / warning / info，用于控制图标与颜色
+    """
+    if st.session_state.get("_last_toast_key") != toast_key:
+        icon_map = {
+            "success": "✅",
+            "error": "❌",
+            "warning": "⚠️",
+            "info": "🔔",
+        }
+        icon = icon_map.get(kind, "🔔")
+        st.toast(message, icon=icon, duration=4)
+        # 为 Toast 标记 data-kind，使 theme.py 中 CSS 可按成功/错误/警告上色
+        safe_message = message.replace("'", "\\'")
+        st.html(f"""
+        <script>
+        (function() {{
+            const toasts = document.querySelectorAll('[data-testid="stToast"]');
+            const target = Array.from(toasts).reverse().find(t => t.textContent.includes('{safe_message}'));
+            if (target) {{
+                target.setAttribute('data-kind', '{kind}');
+            }}
+        }})();
+        </script>
+        """)
+        st.session_state._last_toast_key = toast_key
 
 
 def _build_pool(mode, count_override=None, experiment=None):
@@ -172,16 +203,27 @@ def _handle_submit(user_answer_raw):
     st.session_state.max_combo_in_round = max(
         st.session_state.max_combo_in_round, result["new_combo"]
     )
+    # 连击特效触发
+    combo = result["new_combo"]
+    q_id = q.get("id", "")
+    if combo in (3, 5, 7, 10):
+        st.markdown(f'<div class="combo-effect-{combo}" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;"></div>', unsafe_allow_html=True)
+        _show_toast_once(f"{combo}连击", f"combo_{q_id}_{combo}", kind="info")
     if result["is_correct"]:
         st.session_state.round_correct += 1
+        _show_toast_once(f"正确 +{result['delta']:.1f}分", f"correct_{q_id}_{result['delta']:.1f}", kind="success")
     else:
         st.session_state.round_wrong += 1
+        if is_timeout:
+            _show_toast_once("时间到", f"timeout_{q_id}", kind="warning")
+        else:
+            _show_toast_once(f"错误 · 答案：{q['answer']}", f"wrong_{q_id}", kind="error")
         # 写入错题本
         user_answer_display = user_answer_raw or ("[超时]" if is_timeout else "[未作答]")
         add_wrong_question(
             st.session_state, qid=q["id"], question_text=q.get("question", ""),
             user_answer=user_answer_display,
-            correct_answer=q["answer"], topic=q.get("topic", ""),
+            correct_answer=q["answer"], topic=q.get("experiment", ""),
             question_type=q["type"],
             options={"A": q.get("option_a", ""), "B": q.get("option_b", ""),
                      "C": q.get("option_c", ""), "D": q.get("option_d", "")}
@@ -200,9 +242,9 @@ def _handle_submit(user_answer_raw):
         int(st.session_state.get("max_combo_ever", 0)), result["new_combo"]
     )
 
-    # 章节统计
+    # 章节统计 (按 experiment 章节维度，而非 topic 知识点维度)
     update_topic_stats(
-        st.session_state, q.get("topic", ""), result["is_correct"], is_timeout
+        st.session_state, q.get("experiment", ""), result["is_correct"], is_timeout
     )
 
     # 持久化
@@ -283,7 +325,7 @@ def _calc_total_time_limit(pool):
         qtype = q["type"]
         base = {"choice": 30, "judge": 20, "fill": 45}.get(qtype, 30)
         diff_factor = float(q.get("difficulty", 1)) * 1.0
-        exp_name = q.get("topic", "")
+        exp_name = q.get("experiment", "")
         stat = exp_stats.get(exp_name, {})
         exp_total = stat.get("total", 0)
         if exp_total >= 3:
@@ -316,14 +358,25 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
     st.session_state.round_score += result["delta"]
     st.session_state.current_combo = result["new_combo"]
     st.session_state.max_combo_in_round = max(st.session_state.max_combo_in_round, result["new_combo"])
+    # 连击特效触发
+    combo = result["new_combo"]
+    q_id = q.get("id", "")
+    if combo in (3, 5, 7, 10):
+        st.markdown(f'<div class="combo-effect-{combo}" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;"></div>', unsafe_allow_html=True)
+        _show_toast_once(f"{combo}连击", f"dil_combo_{q_id}_{combo}")
     if result["is_correct"]:
         st.session_state.round_correct += 1
+        _show_toast_once(f"正确 +{result['delta']:.1f}分", f"dil_correct_{q_id}_{result['delta']:.1f}")
     else:
         st.session_state.round_wrong += 1
+        if is_timeout:
+            _show_toast_once("时间到", f"dil_timeout_{q_id}")
+        else:
+            _show_toast_once(f"错误 · 答案：{q['answer']}", f"dil_wrong_{q_id}")
         add_wrong_question(
             st.session_state, qid=q["id"], question_text=q.get("question", ""),
             user_answer=user_answer or ("[超时]" if is_timeout else "[未作答]"),
-            correct_answer=q["answer"], topic=q.get("topic", ""),
+            correct_answer=q["answer"], topic=q.get("experiment", ""),
             question_type=q["type"],
             options={"A": q.get("option_a", ""), "B": q.get("option_b", ""),
                      "C": q.get("option_c", ""), "D": q.get("option_d", "")}
@@ -338,7 +391,7 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
         st.session_state.total_wrong += 1
     st.session_state.total_questions += 1
     st.session_state.max_combo_ever = max(st.session_state.max_combo_ever, result["new_combo"])
-    update_topic_stats(st.session_state, q.get("topic", ""), result["is_correct"], is_timeout)
+    update_topic_stats(st.session_state, q.get("experiment", ""), result["is_correct"], is_timeout)
 
     st.session_state.show_feedback = True
     st.session_state.feedback_data = {
@@ -384,8 +437,16 @@ def _handle_diligence_submit(user_answer, q, remaining_total):
 st.set_page_config(page_title=f"答题练习 - {APP_NAME}", layout="wide")
 inject_gufeng_css()
 from utils.question_loader import load_questions
-_ = load_questions(get_active_questions_csv())  # 热缓存
-_ensure_global_state()
+
+# 进入页面时的初始化/加载存档路径，用 st.spinner 给出可视反馈
+_archive = st.session_state.get("current_archive")
+_is_guest = not _archive or str(_archive).lower() == "guest"
+if _is_guest:
+    _ensure_global_state()
+else:
+    with st.spinner("正在加载存档..."):
+        _ = load_questions(get_active_questions_csv())  # 热缓存
+        _ensure_global_state()
 
 # Autorefresh: 每秒触发一次 rerun, 驱动倒计时
 try:
@@ -402,7 +463,7 @@ mode = st.session_state.quiz_mode
 mode_title = MODE_CONFIG.get(mode, {}).get("title", "答题")
 mode_desc = MODE_CONFIG.get(mode, {}).get("desc", "")
 
-st.title(f"🎯 {mode_title}")
+st.title(mode_title)
 if mode_desc:
     st.caption(mode_desc)
 
@@ -410,58 +471,55 @@ if mode_desc:
 if not st.session_state.get("quiz_started", False):
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.subheader("⚙️ 配置")
+        st.subheader("配置")
 
         if mode == "diligence":
-            st.subheader("⚙️ 选择档位")
+            st.subheader("选择档位")
             is_mobile = st.session_state.get("is_mobile", False)
             dc1, dc2, dc3 = st.columns(1 if is_mobile else 3)
             with dc1:
                 with st.container(border=True):
-                    st.markdown("### ⚡ 5题速检")
+                    st.markdown("### 5题速检")
                     st.caption("~3分钟 | 碎片时间")
                     if st.button("选择此档", key="tier_speed5", use_container_width=True):
                         st.session_state.diligence_tier = "speed5"
-                        st.rerun()
             with dc2:
                 with st.container(border=True):
-                    st.markdown("### 🎯 15题精准")
+                    st.markdown("### 15题精准")
                     st.caption("~10分钟 | 高效练手")
                     if st.button("选择此档", key="tier_precise15", use_container_width=True):
                         st.session_state.diligence_tier = "precise15"
-                        st.rerun()
             with dc3:
                 with st.container(border=True):
-                    st.markdown("### 📚 24题全面")
+                    st.markdown("### 24题全面")
                     st.caption("~16分钟 | 深度覆盖")
                     if st.button("选择此档", key="tier_comprehensive24", use_container_width=True):
                         st.session_state.diligence_tier = "comprehensive24"
-                        st.rerun()
 
             tier = st.session_state.get("diligence_tier")
             if tier is None:
-                st.info("👆 请选择答题档位")
+                st.info("请选择答题档位")
                 st.stop()
 
             count = DILIGENCE_MODES[tier]
             st.markdown(f"已选 **{count} 题**")
 
             pref_default = 20 if tier == "speed5" else 50
-            pref = st.slider("🎯 新题 ← → 错题", 0, 100, pref_default, 5, key="dil_pref",
+            pref = st.slider("新题 ← → 错题", 0, 100, pref_default, 5, key="dil_pref",
                              help="拉向左侧=多出新题，拉向右侧=多练错题")
             st.session_state.diligence_preference = pref
 
-            time_adjust = st.slider("⏱ 每题时间调整（秒）", -10, 10, 0, 1,
+            time_adjust = st.slider("每题时间调整（秒）", -10, 10, 0, 1,
                                     help="正值延长时间，负值缩短时间")
             st.session_state.diligence_time_adjust = time_adjust
 
             experiment_filter = None
         elif mode == "reward":
-            st.subheader("🎯 选择练习章节")
+            st.subheader("选择练习章节")
             st.caption("按 1/2 : 1/3 : 1/6 权重分配 36 题")
             from utils.question_loader import load_questions
             df = load_questions(get_active_questions_csv())
-            all_exps = sorted(set(df["topic"].tolist())) if not df.empty else []
+            all_exps = sorted(set(df["experiment"].tolist())) if not df.empty else []
             exp_stats = st.session_state.get("topic_stats", {})
             exp_info = []
             for exp in all_exps:
@@ -473,28 +531,28 @@ if not st.session_state.get("quiz_started", False):
                     "name": exp,
                     "total": exp_total,
                     "accuracy": exp_acc,
-                    "questions": len(df[df["topic"] == exp]),
+                    "questions": len(df[df["experiment"] == exp]),
                 })
             sel1, sel2, sel3 = st.columns(3)
             with sel1:
-                st.markdown("**🔴 主攻 (18题)**")
+                st.markdown("**主攻 (18题)**")
                 main_exp = st.selectbox("主攻章节", [e["name"] for e in exp_info], key="sel_main")
             with sel2:
-                st.markdown("**🟡 辅攻 (12题)**")
+                st.markdown("**辅攻 (12题)**")
                 aux_exp = st.selectbox("辅攻章节", [e["name"] for e in exp_info if e["name"] != main_exp], key="sel_aux")
             with sel3:
-                st.markdown("**🟢 补充 (6题)**")
+                st.markdown("**补充 (6题)**")
                 supp_exp = st.selectbox("补充章节", [e["name"] for e in exp_info if e["name"] not in (main_exp, aux_exp)], key="sel_supp")
             st.session_state.reward_experiments = [main_exp, aux_exp, supp_exp]
             experiment_filter = None
             count = 36
         else:  # reflect
-            st.subheader("📝 我思我在")
+            st.subheader("我思我在")
             wrong_list = st.session_state.get("wrong_questions", [])
             n_wrong = len(wrong_list)
             if n_wrong == 0:
-                st.error("❌ 错题本为空, 先去其他模式答题积累错题!")
-                if st.button("🏠 返回主页", width="stretch"):
+                st.error("错题本为空，先去其他模式答题积累错题")
+                if st.button("返回主页", width="stretch"):
                     st.switch_page(os.path.join(APP_DIR, "app.py"))
                 st.stop()
             from collections import Counter
@@ -508,14 +566,14 @@ if not st.session_state.get("quiz_started", False):
             experiment_filter = None
 
         st.markdown("---")
-        if st.button("🚀 开始答题", type="primary", width="stretch"):
+        if st.button("开始答题", type="primary", width="stretch"):
             success = _start_quiz(mode, count, experiment=experiment_filter)
             if not success:
-                st.error("题库为空, 请先录入题目!")
+                st.error("题库为空，请先录入题目")
             else:
                 st.rerun()
 
-        if st.button("🔙 切换模式", width="stretch"):
+        if st.button("切换模式", width="stretch"):
             for k in ("quiz_mode", "quiz_started"):
                 if k in st.session_state:
                     del st.session_state[k]
@@ -538,14 +596,26 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
     remaining_total = max(0, st.session_state.get("diligence_total_time", 300) - elapsed_total)
 
     remaining_str = f"{int(remaining_total // 60)}:{int(remaining_total % 60):02d}"
-    st.caption(f"⏱ {remaining_str}  ·  🔥 {st.session_state.current_combo}连  ·  📈 {st.session_state.round_score:.1f}分  ·  📝 {idx + 1}/{total}")
+    status_html = f'''
+    <div style="display:flex;align-items:center;gap:10px;margin:10px 0 16px 0;flex-wrap:wrap;">
+        <span class="status-pill">剩余 {remaining_str}</span>
+        <span class="status-pill">连击 {st.session_state.current_combo}</span>
+        <span class="status-pill">得分 {st.session_state.round_score:.1f}</span>
+        <span class="status-pill">题号 {idx + 1}/{total}</span>
+    </div>
+    '''
+    st.markdown(status_html, unsafe_allow_html=True)
     st.progress(remaining_total / max(st.session_state.diligence_total_time, 1))
 
     if remaining_total <= 0:
         st.session_state.quiz_finished = True
         st.rerun()
 
-    st.markdown(f"### Q{idx + 1}. {q['question']}")
+    st.markdown(f'''
+    <div class="question-card">
+        <div class="question-title">Q{idx + 1}. {q['question']}</div>
+    </div>
+    ''', unsafe_allow_html=True)
 
     qtype = q["type"]
 
@@ -564,24 +634,21 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
             cA, cB, cC, cD = st.columns(4)
         for col, label in [(cA, "A"), (cB, "B"), (cC, "C"), (cD, "D")]:
             with col:
-                opt_text = opts.get(label, "")
+                opt_text = str(opts.get(label, ""))
                 short = opt_text[:60] + ("..." if len(opt_text) > 60 else "")
                 if st.button(label, key=f"dil_{label}_{idx}", use_container_width=True,
                              help=opt_text):
                     _handle_diligence_submit(label, q, remaining_total)
-                    st.rerun()
                 st.caption(short)
 
     elif qtype == "judge":
         cj1, cj2 = st.columns(2)
         with cj1:
-            if st.button("✅ 对", key=f"dil_judge_t_{idx}", use_container_width=True):
+            if st.button("对", key=f"dil_judge_t_{idx}", use_container_width=True):
                 _handle_diligence_submit("对", q, remaining_total)
-                st.rerun()
         with cj2:
-            if st.button("❌ 错", key=f"dil_judge_f_{idx}", use_container_width=True):
+            if st.button("错", key=f"dil_judge_f_{idx}", use_container_width=True):
                 _handle_diligence_submit("错", q, remaining_total)
-                st.rerun()
 
     elif qtype == "fill":
         blank_count = int(q.get("blank_count", 1))
@@ -594,7 +661,6 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
             if st.button("提交填空", key=f"dil_fill_btn_{idx}", width="stretch"):
                 if user_input.strip():
                     _handle_diligence_submit(user_input.strip(), q, remaining_total)
-                    st.rerun()
         else:
             user_parts = []
             for bi in range(blank_count):
@@ -604,16 +670,11 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
             if st.button("提交", key=f"dil_fill_btn_{idx}", width="stretch"):
                 if any(p for p in user_parts):
                     _handle_diligence_submit(user_parts, q, remaining_total)
-                    st.rerun()
 
-    # ---- 顶部弹窗反馈 ----
+    # ---- 提交后反馈：保留折叠解析，由 Toast 承担主要提示 ----
     if st.session_state.get("show_feedback"):
         fb = st.session_state.get("feedback_data", {})
-        if fb.get("is_correct"):
-            st.success(f"✅ 正确! +{fb.get('delta', 0):.1f}分 | 🔥{fb.get('combo', 0)}连", icon="✅")
-        else:
-            st.error(f"❌ {fb.get('reason', '答错了')}", icon="❌")
-        with st.expander("💡 查看解析"):
+        with st.expander("查看解析"):
             st.markdown(f"**正确答案:** {fb.get('correct_answer', '')}")
             st.write(f"**你的答案:** {fb.get('user_answer', '')}")
             if fb.get("explanation"):
@@ -632,26 +693,26 @@ if st.session_state.get("quiz_finished", False):
     # 结果页
     total_ans = st.session_state.round_correct + st.session_state.round_wrong
     accuracy = (st.session_state.round_correct / total_ans * 100.0) if total_ans else 0.0
-    st.success("🎉 答题完成!")
-    st.title("🎉 本轮结束!")
+    st.markdown('<div style="text-align:center;margin-bottom:16px;"><span class="seal-correct">✓</span> 答题完成</div>', unsafe_allow_html=True)
+    st.title("本轮结束")
 
     is_mobile = st.session_state.get("is_mobile", False)
     if is_mobile:
         m1, m2 = st.columns(2)
         m3, m4 = st.columns(2)
-        m1.metric("🎯 总得分", f"{st.session_state.round_score:.1f}")
-        m2.metric("✅ 正确率", f"{accuracy:.1f}%")
-        m3.metric("🔥 最高连击", st.session_state.max_combo_in_round)
-        m4.metric("📝 答题数", total_ans)
+        m1.metric("总得分", f"{st.session_state.round_score:.1f}")
+        m2.metric("正确率", f"{accuracy:.1f}%")
+        m3.metric("最高连击", st.session_state.max_combo_in_round)
+        m4.metric("答题数", total_ans)
     else:
         metric_c1, metric_c2, metric_c3, metric_c4 = st.columns(4)
-        metric_c1.metric("🎯 总得分", f"{st.session_state.round_score:.1f}")
-        metric_c2.metric("✅ 正确率", f"{accuracy:.1f}%")
-        metric_c3.metric("🔥 最高连击", st.session_state.max_combo_in_round)
-        metric_c4.metric("📝 答题数", total_ans)
+        metric_c1.metric("总得分", f"{st.session_state.round_score:.1f}")
+        metric_c2.metric("正确率", f"{accuracy:.1f}%")
+        metric_c3.metric("最高连击", st.session_state.max_combo_in_round)
+        metric_c4.metric("答题数", total_ans)
 
     st.markdown("---")
-    st.subheader("📊 本轮错题")
+    st.subheader("本轮错题")
     if st.session_state.round_wrong > 0:
         # 从错题本筛选本轮的题 (本题中被写入的)
         wq = st.session_state.get("wrong_questions", [])
@@ -668,20 +729,20 @@ if st.session_state.get("quiz_finished", False):
                 st.write(f"**所属章节:** {entry.get('topic', '')}")
                 st.write(f"**错误次数:** {entry.get('wrong_count', 1)}")
     else:
-        st.success("🏆 本轮零失误! 完美答题!")
+        st.markdown('<span class="seal-correct">✓</span> 本轮零失误，完美答题', unsafe_allow_html=True)
 
     st.markdown("---")
     col_back, col_analysis, col_retry = st.columns(3)
     with col_back:
-        if st.button("🏠 返回主页", width="stretch"):
+        if st.button("返回主页", width="stretch"):
             _init_quiz_state()
             st.switch_page(os.path.join(APP_DIR, "app.py"))
     with col_analysis:
-        if st.button("📊 查看分析", width="stretch"):
+        if st.button("查看分析", width="stretch"):
             _init_quiz_state()
             st.switch_page("pages/02_智能分析.py")
     with col_retry:
-        if st.button("🔄 再来一轮", type="primary", width="stretch"):
+        if st.button("再来一轮", type="primary", width="stretch"):
             _init_quiz_state()
             st.rerun()
     st.stop()
@@ -705,26 +766,50 @@ if remaining <= 0 and not st.session_state.get("submitted", False):
     st.rerun()
 
 # ---- 顶栏状态 ----
-st.caption(f"🔥 {st.session_state.current_combo}连  ·  ⏱ {int(remaining)}s  ·  📈 {st.session_state.round_score:.1f}分  ·  📝 {idx + 1}/{total}")
-st.progress((idx + 1) / total)
+# 环形倒计时
+time_ratio = elapsed / tl if tl > 0 else 0
+time_ratio = max(0, min(1, time_ratio))
+if time_ratio < 0.2:
+    ring_color = "#5D8C87"  # 竹青：充足
+elif time_ratio < 0.5:
+    ring_color = "#C4946B"  # 金暖：过半
+else:
+    ring_color = "#B85C5C"  # 浅绛：紧张
+ring_html = f'''
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+    <svg width="50" height="50" viewBox="0 0 50 50">
+        <circle cx="25" cy="25" r="20" fill="none" stroke="#e0e0e0" stroke-width="4"/>
+        <circle cx="25" cy="25" r="20" fill="none" stroke="{ring_color}" stroke-width="4"
+            stroke-dasharray="{2 * 3.14159 * 20}" stroke-dashoffset="{2 * 3.14159 * 20 * (1 - time_ratio)}"
+            stroke-linecap="round" transform="rotate(-90 25 25)"
+            style="transition: stroke-dashoffset 0.3s, stroke 0.3s;"/>
+        <text x="25" y="25" text-anchor="middle" dy="5" font-size="12" fill="#2C1810" font-weight="bold">{int(remaining)}s</text>
+    </svg>
+    <span style="color:{ring_color};font-weight:bold;font-size:14px;">{int(remaining)}秒</span>
+</div>
+'''
+st.markdown(ring_html, unsafe_allow_html=True)
 
-# ---- 题目正文 ----
-st.markdown(f"### Q{idx + 1}. {q['question']}")
+# 顶部状态胶囊：连击、得分、进度
+status_html = f'''
+<div style="display:flex;align-items:center;gap:10px;margin:10px 0 16px 0;flex-wrap:wrap;">
+    <span class="status-pill">连击 {st.session_state.current_combo}</span>
+    <span class="status-pill">得分 {st.session_state.round_score:.1f}</span>
+    <span class="status-pill">题号 {idx + 1}/{total}</span>
+</div>
+'''
+st.markdown(status_html, unsafe_allow_html=True)
+st.progress((idx + 1) / total)
 
 user_answer = ""
 qtype = q["type"]
 
 if st.session_state.get("awaiting_next", False):
-    # ====== 反馈持久化区 ======
+    # ====== 提交后：只保留下一题按钮与折叠解析 ======
     result = st.session_state.last_result
     last_q = st.session_state.get("last_question", {})
     if result:
-        if result["is_correct"]:
-            st.success(f"✅ 正确! (+{result['delta']:.1f} 分, {result['new_combo']}连)")
-        else:
-            st.error(f"❌ {result.get('reason', '答错了')} (扣 {abs(result['delta']):.1f} 分)")
-
-        with st.expander("💡 查看解析", expanded=True):
+        with st.expander("查看解析"):
             st.markdown(f"**正确答案:** {last_q.get('answer', '')}")
             explanation = last_q.get("explanation", "")
             if explanation:
@@ -738,17 +823,22 @@ if st.session_state.get("awaiting_next", False):
                 sim = similarity_score(last_ua or "", last_q.get("answer", ""))
                 st.write(f"**答案相似度:** `{sim:.0%}`")
 
-    st.markdown("---")
-    if st.button("下一题 →", type="primary", width="stretch"):
+    if st.button("下一题", type="primary", width="stretch"):
         _go_next_question()
 
 else:
     # ====== 正常答题区 ======
+    st.markdown(f'''
+    <div class="question-card">
+        <div class="question-title">Q{idx + 1}. {q['question']}</div>
+    </div>
+    ''', unsafe_allow_html=True)
+
     if qtype == "choice":
         if "selected_option" not in st.session_state:
             st.session_state.selected_option = None
 
-        st.markdown("**请选择答案:**")
+        st.markdown("<div style='margin:16px 0 8px 0;font-weight:500;color:#2C1810;'>请选择答案</div>", unsafe_allow_html=True)
         is_mobile = st.session_state.get("is_mobile", False)
         if is_mobile:
             cA, cB = st.columns(2)
@@ -766,18 +856,21 @@ else:
         for i, (label, opt_text) in enumerate(options.items()):
             with cols[i]:
                 is_selected = st.session_state.selected_option == label
-                btn_label = f"{'✅ ' if is_selected else ''}{label}"
+                # 使用印章图标表示选中状态
+                mark = '<span class="seal-correct" style="margin-right:4px;">✓</span>' if is_selected else ''
+                btn_label = f"{label}"
                 if st.button(btn_label, key=f"opt_{label}_{idx}",
                              use_container_width=True,
                              type="primary" if is_selected else "secondary"):
                     st.session_state.selected_option = label
-                    st.rerun()
+                if is_selected:
+                    st.markdown(mark, unsafe_allow_html=True)
                 short_text = opt_text[:50] + ("..." if len(opt_text) > 50 else "")
                 st.caption(short_text)
 
         user_answer = st.session_state.selected_option or ""
 
-    if st.button("⏭ 跳过此题", key=f"skip_{idx}", width="stretch"):
+    if st.button("跳过此题", key=f"skip_{idx}", width="stretch"):
         st.session_state.skip_count = st.session_state.get("skip_count", 0) + 1
         _advance_to_next()
         st.session_state.show_result = False
@@ -810,7 +903,7 @@ else:
         elif qtype != "choice":
             user_answer = st.text_input("请作答:", label_visibility="hidden")
 
-        submitted = st.form_submit_button("✅ 提交答案", type="primary", width="stretch")
+        submitted = st.form_submit_button("提交答案", type="primary", width="stretch")
         if submitted:
             if qtype == "choice":
                 _handle_submit(str(st.session_state.get("selected_option") or ""))
@@ -822,28 +915,29 @@ else:
 
 # ---- 侧栏导航 ----
 with st.sidebar:
-    st.markdown("### 🧭 导航")
-    if st.button("🏠 主页", width="stretch"):
+    st.markdown("### 导航")
+    if st.button("主页", width="stretch"):
         _init_quiz_state()
         st.switch_page(os.path.join(APP_DIR, "app.py"))
-    if st.button("📊 分析", width="stretch"):
+    if st.button("分析", width="stretch"):
         _init_quiz_state()
         st.switch_page("pages/02_智能分析.py")
-    if st.button("📝 错题本", width="stretch"):
+    if st.button("错题本", width="stretch"):
         _init_quiz_state()
         st.switch_page("pages/03_错题本.py")
 
     st.markdown("---")
 
-    with st.expander("📜 最近答题", expanded=False):
+    with st.expander("最近答题", expanded=False):
         recent = st.session_state.get("recent_results", [])
         if recent:
             for r in reversed(recent):
-                icon = "✅" if r["is_correct"] else "❌"
+                seal = '<span class="seal-correct">✓</span>' if r["is_correct"] else '<span class="seal-wrong">✗</span>'
                 st.markdown(
-                    f"{icon} Q{r['q_index']}. [{r['qtype']}] "
+                    f"{seal} Q{r['q_index']}. [{r['qtype']}] "
                     f"{'对' if r['is_correct'] else '错'} | "
-                    f"{r['delta']:+.1f}分 | {r['elapsed']:.0f}s"
+                    f"{r['delta']:+.1f}分 | {r['elapsed']:.0f}s",
+                    unsafe_allow_html=True,
                 )
         else:
             st.caption("暂无答题记录")

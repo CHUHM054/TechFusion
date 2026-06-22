@@ -1,6 +1,17 @@
 {
-  "active": "物理实验",
+  "active": "大学物理扩充包",
   "subjects": [
-    {"id": "physics", "name": "物理实验", "path": "物理实验", "icon": "🔬"}
+    {
+      "id": "physics",
+      "name": "物理实验",
+      "path": "物理实验",
+      "icon": "🔬"
+    },
+    {
+      "id": "大学物理扩充包",
+      "name": "大学物理扩充包",
+      "path": "大学物理扩充包",
+      "icon": "📚"
+    }
   ]
 }

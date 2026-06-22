@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """错题本页 —— 查看、筛选、导出错题，支持一键进入错题重练模式"""
 import os
 import sys
@@ -21,7 +21,8 @@ st.set_page_config(page_title=f"错题本 - {APP_NAME}", layout="wide")
 inject_gufeng_css()
 
 from utils.question_loader import load_questions
-_ = load_questions(get_active_questions_csv())  # 热缓存
+with st.spinner("正在加载题库..."):
+    _ = load_questions(get_active_questions_csv())  # 热缓存
 
 # ---- 确保 session_state 存在 ----
 for key, default in (
@@ -33,6 +34,10 @@ for key, default in (
         st.session_state[key] = default
 
 st.title("📝 错题本")
+if st.session_state.get("current_archive"):
+    st.caption(f"📁 当前存档：{st.session_state.current_archive}")
+else:
+    st.caption("👤 当前模式：访客")
 
 wrong_list = list(st.session_state.wrong_questions)
 
@@ -47,64 +52,72 @@ else:
 st.divider()
 
 if wrong_list:
-    # ---- 筛选控件 ----
-    fc1, fc2, fc3 = st.columns([2, 2, 2])
-    topics = sorted({e.get("topic", "其他") for e in wrong_list})
-    with fc1:
-        filter_topic = st.selectbox("按章节筛选", ["全部"] + topics)
-    with fc2:
-        sort_by = st.selectbox("排序方式", ["最近错误", "错误次数", "按章节"])
-    with fc3:
-        st.write("")  # 占位
+    with st.spinner("正在加载错题本..."):
+        # ---- 筛选控件 ----
+        fc1, fc2, fc3 = st.columns([2, 2, 2])
+        topics = sorted({e.get("topic", "其他") for e in wrong_list})
+        with fc1:
+            filter_topic = st.selectbox("按章节筛选", ["全部"] + topics)
+        with fc2:
+            sort_by = st.selectbox("排序方式", ["最近错误", "错误次数", "按章节"])
+        with fc3:
+            st.write("")  # 占位
 
-    # ---- 应用筛选 ----
-    filtered = wrong_list
-    if filter_topic != "全部":
-        filtered = [e for e in filtered if e.get("topic") == filter_topic]
+        # ---- 应用筛选 ----
+        filtered = wrong_list
+        if filter_topic != "全部":
+            filtered = [e for e in filtered if e.get("topic") == filter_topic]
 
-    if sort_by == "最近错误":
-        filtered.sort(key=lambda x: x.get("last_wrong_ts", 0), reverse=True)
-    elif sort_by == "错误次数":
-        filtered.sort(key=lambda x: x.get("wrong_count", 0), reverse=True)
-    else:  # 按章节
-        filtered.sort(key=lambda x: x.get("topic", ""))
+        if sort_by == "最近错误":
+            filtered.sort(key=lambda x: x.get("last_wrong_ts", 0), reverse=True)
+        elif sort_by == "错误次数":
+            filtered.sort(key=lambda x: x.get("wrong_count", 0), reverse=True)
+        else:  # 按章节
+            filtered.sort(key=lambda x: x.get("topic", ""))
 
-    # ---- 展示 ----
-    st.markdown(f"#### 📋 错题列表 ({len(filtered)} 题)")
+        # ---- 分页展示 ----
+        st.markdown(f"#### 📋 错题列表 ({len(filtered)} 题)")
+        ITEMS_PER_PAGE = 10
+        total_pages = max(1, (len(filtered) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+        page = st.pagination(num_pages=total_pages, key="wrongbook_pagination")
+        start_idx = (page - 1) * ITEMS_PER_PAGE
+        end_idx = start_idx + ITEMS_PER_PAGE
+        paginated = filtered[start_idx:end_idx]
 
-    # 卡片式展示: 每行 2 题
-    for i, entry in enumerate(filtered):
-        qid = str(entry.get("qid", ""))
-        with st.expander(f"[{i+1}] {entry.get('question_text', '题目')[:60]}..."):
-            c_left, c_right = st.columns([3, 1])
-            with c_left:
-                st.markdown(f"**题目:** {entry.get('question_text', '')}")
-                if entry.get('user_answer_context') is not None:
-                    st.markdown(f"**你选择了:** {entry.get('user_answer_context', '')}")
-                    st.markdown(f"**正确答案:** {entry.get('correct_answer_context', '')}")
-                else:
-                    user_ans = entry.get("user_answer", "")
-                    if isinstance(user_ans, list):
-                        user_ans = " | ".join(str(x) for x in user_ans)
-                    correct_ans = str(entry.get("correct_answer", ""))
-                    if "||" in correct_ans:
-                        blanks = [b.replace("|", "/") for b in correct_ans.split("||")]
-                        correct_ans = " | ".join(blanks)
-                    st.markdown(f"**你的答案:** `{user_ans}`")
-                    st.markdown(f"**正确答案:** `{correct_ans}`")
-                st.markdown(f"**所属章节:** {entry.get('topic', '未分类')}")
-                st.markdown(f"**累计错误次数:** {int(entry.get('wrong_count', 1))}")
-                last_ts = entry.get("last_wrong_ts", None)
-                if last_ts:
-                    ts_str = datetime.fromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M")
-                    st.caption(f"最近错误时间: {ts_str}")
-            with c_right:
-                st.markdown("#### 操作")
-                if st.button("✓ 标记为已掌握 (移除)", key=f"remove_{qid}_{i}"):
-                    remove_wrong_question(st.session_state, qid)
-                    save_session(st.session_state)
-                    st.success("已从错题本移除 ✅")
-                    st.rerun()
+        # 卡片式展示: 每行 2 题
+        for i, entry in enumerate(paginated):
+            global_idx = start_idx + i
+            qid = str(entry.get("qid", ""))
+            with st.expander(f"[{global_idx+1}] {entry.get('question_text', '题目')[:60]}..."):
+                c_left, c_right = st.columns([3, 1])
+                with c_left:
+                    st.markdown(f"**题目:** {entry.get('question_text', '')}")
+                    if entry.get('user_answer_context') is not None:
+                        st.markdown(f"**你选择了:** {entry.get('user_answer_context', '')}")
+                        st.markdown(f"**正确答案:** {entry.get('correct_answer_context', '')}")
+                    else:
+                        user_ans = entry.get("user_answer", "")
+                        if isinstance(user_ans, list):
+                            user_ans = " | ".join(str(x) for x in user_ans)
+                        correct_ans = str(entry.get("correct_answer", ""))
+                        if "||" in correct_ans:
+                            blanks = [b.replace("|", "/") for b in correct_ans.split("||")]
+                            correct_ans = " | ".join(blanks)
+                        st.markdown(f"**你的答案:** `{user_ans}`")
+                        st.markdown(f"**正确答案:** `{correct_ans}`")
+                    st.markdown(f"**所属章节:** {entry.get('topic', '未分类')}")
+                    st.markdown(f"**累计错误次数:** {int(entry.get('wrong_count', 1))}")
+                    last_ts = entry.get("last_wrong_ts", None)
+                    if last_ts:
+                        ts_str = datetime.fromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M")
+                        st.caption(f"最近错误时间: {ts_str}")
+                with c_right:
+                    st.markdown("#### 操作")
+                    if st.button("✓ 标记为已掌握 (移除)", key=f"remove_{qid}_{global_idx}"):
+                        remove_wrong_question(st.session_state, qid)
+                        save_session(st.session_state)
+                        st.success("已从错题本移除 ✅")
+                        st.rerun()
 
     st.divider()
 

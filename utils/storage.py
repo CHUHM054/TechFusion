@@ -12,7 +12,7 @@ import json
 import os
 import time
 
-from config import SESSION_DIR, SESSION_FILE
+from config import SESSION_DIR, SESSION_FILE, get_active_topics_csv
 
 DEFAULT_SESSION = {
     "total_score": 0.0,
@@ -33,6 +33,37 @@ ARCHIVES_META_FILE = os.path.join(SESSION_DIR, "archives_meta.json")
 PERSIST_KEYS = tuple(DEFAULT_SESSION.keys())
 
 
+# ========== 章节名辅助函数 ==========
+def _get_chapter_names():
+    """从 topics.csv 读取章节名列表。失败返回空列表。"""
+    try:
+        import pandas as pd
+        path = get_active_topics_csv()
+        if os.path.exists(path):
+            df = pd.read_csv(path, encoding="utf-8-sig")
+            if "name" in df.columns:
+                return set(df["name"].astype(str).tolist())
+    except Exception:
+        pass
+    return set()
+
+
+def _sanitize_topic_stats(data):
+    """清洗 topic_stats：只保留属于章节名的 key，其余丢弃。
+
+    旧版本曾将知识点 (topic) 当作章节写入 topic_stats，
+    导致章节覆盖 metric 出现 21/16 这种异常。
+    这里按章节名白名单过滤，旧数据被丢弃但不影响新统计。
+    """
+    chapters = _get_chapter_names()
+    if not chapters:
+        return data
+    ts = data.get("topic_stats", {})
+    if isinstance(ts, dict):
+        data["topic_stats"] = {k: v for k, v in ts.items() if k in chapters}
+    return data
+
+
 # ========== 基础读写 ==========
 def _ensure_dir():
     """确保 session 目录存在"""
@@ -42,8 +73,30 @@ def _ensure_dir():
 
 def load_session(archive_name=None):
     """从 JSON 加载 session 数据。
+    优先从浏览器 localStorage 读取，无数据时回退到服务端 JSON 文件。
     如果 archive_name 非空，从 archives/{name}.json 加载；否则从 session.json
     """
+    # 优先从浏览器 localStorage 读取
+    try:
+        from utils.localstorage import load_all_from_localstorage, _ls_key
+        ls_data = load_all_from_localstorage()
+        if ls_data:
+            key = _ls_key(archive_name)
+            if key in ls_data:
+                data = ls_data[key]
+                if "experiment_stats" in data and "topic_stats" not in data:
+                    data["topic_stats"] = data.pop("experiment_stats")
+                for entry in data.get("wrong_questions", []):
+                    if "experiment" in entry and "topic" not in entry:
+                        entry["topic"] = entry.pop("experiment")
+                _sanitize_topic_stats(data)
+                for k, v in DEFAULT_SESSION.items():
+                    if k not in data:
+                        data[k] = v
+                return data
+    except Exception:
+        pass
+
     if archive_name:
         filepath = os.path.join(ARCHIVES_DIR, f"{archive_name}.json")
     else:
@@ -60,6 +113,8 @@ def load_session(archive_name=None):
         for entry in data.get("wrong_questions", []):
             if "experiment" in entry and "topic" not in entry:
                 entry["topic"] = entry.pop("experiment")
+        # 关键修复: 丢弃旧版本中把知识点当作章节写入的脏数据
+        _sanitize_topic_stats(data)
         # 兼容: 缺失字段补默认值
         for k, v in DEFAULT_SESSION.items():
             if k not in data:
@@ -86,6 +141,12 @@ def save_session(state, archive_name=None):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
     os.replace(tmp, filepath)
+    # 同步写入浏览器 localStorage
+    try:
+        from utils.localstorage import save_to_localstorage, _ls_key
+        save_to_localstorage(_ls_key(archive_name), data)
+    except Exception:
+        pass
 
 
 def _make_json_safe(val):
@@ -240,8 +301,10 @@ def list_archives():
 
 
 def create_archive(name, key=None):
-    """创建存档。返回 True 成功，False 名称已存在"""
+    """创建存档。返回 True 成功，False 名称已存在或已达上限"""
     meta = _read_meta()
+    if len(meta["archives"]) >= 1:
+        return False
     if any(a["name"] == name for a in meta["archives"]):
         return False
     from datetime import datetime
