@@ -1,0 +1,175 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["id", "chapter", "knowledge", "difficulty", "title", "question", "steps", "schema_version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "题目唯一标识"
+    },
+    "chapter": {
+      "type": "string",
+      "description": "所属章节"
+    },
+    "knowledge": {
+      "type": "string",
+      "description": "知识点"
+    },
+    "difficulty": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "难度等级"
+    },
+    "title": {
+      "type": "string",
+      "description": "题目标题"
+    },
+    "question": {
+      "type": "string",
+      "description": "题干"
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Schema 版本号"
+    },
+    "symbols": {
+      "type": "array",
+      "description": "题目使用的符号说明",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "meaning", "chapter", "formula"],
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "符号"
+          },
+          "meaning": {
+            "type": "string",
+            "description": "中文含义"
+          },
+          "chapter": {
+            "type": "string",
+            "description": "所属章节"
+          },
+          "formula": {
+            "type": "string",
+            "description": "相关公式"
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "description": "分步答题信息",
+      "items": {
+        "type": "object",
+        "required": ["step_id", "title", "weight", "time_limit", "blanks"],
+        "properties": {
+          "step_id": {
+            "type": "string",
+            "description": "步骤编号"
+          },
+          "title": {
+            "type": "string",
+            "description": "步骤标题"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "步骤分值权重"
+          },
+          "time_limit": {
+            "type": "integer",
+            "description": "建议用时（秒）"
+          },
+          "blanks": {
+            "type": "array",
+            "description": "步骤下的填空",
+            "items": {
+              "type": "object",
+              "required": ["id", "prompt", "answer", "hint", "weight", "format"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "填空编号"
+                },
+                "prompt": {
+                  "type": "string",
+                  "description": "填空提示"
+                },
+                "answer": {
+                  "type": "string",
+                  "description": "标准答案"
+                },
+                "hint": {
+                  "type": "string",
+                  "description": "提示信息"
+                },
+                "hint_penalty": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.6,
+                  "description": "使用提示后的得分折扣"
+                },
+                "weight": {
+                  "type": "number",
+                  "description": "填空权重"
+                },
+                "format": {
+                  "enum": ["number", "sequence_point", "latex", "text"],
+                  "description": "答案格式"
+                },
+                "tolerance": {
+                  "type": "number",
+                  "default": 0,
+                  "description": "数值答案容差"
+                },
+                "group": {
+                  "type": "string",
+                  "description": "分组名称，同一步骤内相同 group 的填空代表同一变量（列表或字典）"
+                },
+                "group_prompt": {
+                  "type": "string",
+                  "description": "整个分组的共享 LaTeX 提示，显示在填空之前"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "extensions": {
+      "type": "array",
+      "description": "拓展题",
+      "items": {
+        "type": "object",
+        "required": ["id", "prompt", "answer", "hint", "bonus"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "拓展题编号"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "题干"
+          },
+          "answer": {
+            "type": "string",
+            "description": "答案"
+          },
+          "hint": {
+            "type": "string",
+            "description": "提示"
+          },
+          "bonus": {
+            "type": "number",
+            "description": "奖励分值"
+          }
+        }
+      }
+    }
+  }
+}

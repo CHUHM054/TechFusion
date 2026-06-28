@@ -1,0 +1,8 @@
+﻿name,importance,mastery
+模块1-数据预处理与关联规则,required,80
+模块2-决策树与规则分类器,required,85
+聚类分析,required,85
+朴素贝叶斯与单层感知器,required,80
+卷积神经网络CNN,required,85
+模块6-循环神经网络,required,85
+模块7-优化调优与前沿,required,75

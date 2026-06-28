@@ -1,4 +1,4 @@
-﻿id,type,experiment,knowledge,difficulty,question,option_a,option_b,option_c,option_d,answer,blank_count,fill_hint,explanation,keywords,source
+id,type,experiment,knowledge,difficulty,question,option_a,option_b,option_c,option_d,answer,blank_count,fill_hint,explanation,keywords,source
 q001,choice,绪论,有效数字,1,在乘除运算中，结果的有效数字位数应与参与运算中位数最少的那个数保持一致。,对,错,,,A,,,乘除运算有效数字位数对齐最少者。常数π/e参与运算时多取一位,有效数字;乘除运算;位数对齐,PDF自编
 q002,choice,绪论,逐差法,2,逐差法只能处理线性关系的数据。,对,错,,,B,,,逐差法主要用于线性数据处理，但也可扩展到满足一定条件的一元多项式,逐差法;适用范围;线性数据,PDF自编
 q003,choice,绪论,误差分析,1,系统误差的主要特点是?,随机产生不可重复,大小方向恒定可消除,由偶然因素引起,服从统计规律,B,,,系统误差具有确定的大小和方向，可通过对仪器校准(修正值)、完善测量理论、改进测量方法(如交换法)、改善实验环境等方式减小或消除。注意：多次测量不能减小系统误差，只能减小随机误差。,系统误差;减小或消除;修正;校准,自编

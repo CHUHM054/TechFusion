@@ -11,7 +11,7 @@ REQUIRED_COLS = [
     "question", "answer", "explanation", "keywords", "source",
     "option_a", "option_b", "option_c", "option_d",
 ]
-VALID_TYPES = {"choice", "fill"}
+VALID_TYPES = {"choice", "judge", "fill", "subjective", "calc"}
 VALID_ANSWER_CHARS = {"A", "B", "C", "D"}
 VALID_JUDGE_ANSWERS = {"对", "错"}
 
@@ -113,9 +113,10 @@ if __name__ == "__main__":
         df = pd.read_csv(csv_file, encoding="utf-8-sig")
         print(f"\n--- 题型分布 ---")
         tc = df['type'].value_counts()
-        for t in ['choice', 'fill']:
+        for t in ['choice', 'judge', 'fill', 'calc']:
             c = tc.get(t, 0)
-            print(f"  {t}: {c} ({c/total*100:.0f}%)")
+            if c > 0:
+                print(f"  {t}: {c} ({c/total*100:.0f}%)")
 
         print(f"\n--- 难度分布 ---")
         dc = df['difficulty'].value_counts().sort_index()

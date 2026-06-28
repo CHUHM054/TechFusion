@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "id": "sig001",
+  "chapter": "重叠相加法",
+  "knowledge": "重叠相加法原理",
+  "difficulty": 4,
+  "title": "重叠相加法求线性卷积",
+  "question": "已知序列$x(n)=\\{5,4,3,2,1,5,4,3,2,1,\\cdots,5,4,3,2,1\\}_{[0,59]}$，冲激响应$h(n)=\\{1,3,2\\}_{[0,2]}$，使用重叠相加法求$y(n)=x(n)*h(n)$。",
+  "symbols": [
+    {"symbol": "x(n)", "meaning": "输入序列，周期为5的周期序列", "chapter": "重叠相加法", "formula": "$x(n)=\\{5,4,3,2,1,\\cdots\\}_{[0,59]}$"},
+    {"symbol": "h(n)", "meaning": "冲激响应序列", "chapter": "重叠相加法", "formula": "$h(n)=\\{1,3,2\\}_{[0,2]}$"},
+    {"symbol": "y(n)", "meaning": "输出序列/线性卷积结果", "chapter": "重叠相加法", "formula": "$y(n)=x(n)*h(n)$"},
+    {"symbol": "L", "meaning": "输入序列总长度", "chapter": "重叠相加法", "formula": "$L=60$"},
+    {"symbol": "M", "meaning": "冲激响应序列长度", "chapter": "重叠相加法", "formula": "$M=3$"},
+    {"symbol": "N", "meaning": "输入信号分段长度（循环周期）", "chapter": "重叠相加法", "formula": "$N=5$"},
+    {"symbol": "P", "meaning": "每段补零后的长度", "chapter": "重叠相加法", "formula": "$P=N+M-1=7$"}
+  ],
+  "steps": [
+    {
+      "step_id": "step1",
+      "title": "Step1: 确定参数",
+      "weight": 25,
+      "time_limit": 120,
+      "blanks": [
+        {"id": "s1_b1", "prompt": "冲激响应序列长度 $M =$", "answer": "3", "hint": "$h(n)$ 有几个非零值？", "hint_penalty": 0.6, "weight": 33, "format": "number", "tolerance": 0},
+        {"id": "s1_b2", "prompt": "输入序列总长度 $L =$", "answer": "60", "hint": "$x(n)$ 的索引范围是 $[0,59]$，共 $60$ 个点", "hint_penalty": 0.6, "weight": 33, "format": "number", "tolerance": 0},
+        {"id": "s1_b3", "prompt": "每段补零后的长度 $P = N + M - 1 =$", "answer": "7", "hint": "代入 $N=5, M=3$", "hint_penalty": 0.6, "weight": 34, "format": "number", "tolerance": 0}
+      ]
+    },
+    {
+      "step_id": "step2",
+      "title": "Step2: 分段补零",
+      "weight": 25,
+      "time_limit": 180,
+      "blanks": [
+        {"id": "s2_b1", "group": "x1_prime", "group_prompt": "$x_1'(n) =$", "prompt": "", "answer": "5", "hint": "$x_1'(n)$ 前5个点就是 $x(0)$~$x(4)$", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s2_b2", "group": "x1_prime", "prompt": "$(1)$", "answer": "4", "hint": "", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s2_b3", "group": "x1_prime", "prompt": "$(2)$", "answer": "3", "hint": "", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s2_b4", "group": "x1_prime", "prompt": "$(3)$", "answer": "2", "hint": "", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s2_b5", "group": "x1_prime", "prompt": "$(4)$", "answer": "1", "hint": "", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s2_b6", "group": "x1_prime", "prompt": "$(5)$", "answer": "0", "hint": "补零", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s2_b7", "group": "x1_prime", "prompt": "$(6)$", "answer": "0", "hint": "补零", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s2_b8", "prompt": "共分为多少段？", "answer": "12", "hint": "$L \\div N = 60 \\div 5$", "hint_penalty": 0.6, "weight": 30, "format": "number", "tolerance": 0}
+      ]
+    },
+    {
+      "step_id": "step3",
+      "title": "Step3: 分段卷积",
+      "weight": 30,
+      "time_limit": 240,
+      "blanks": [
+        {"id": "s3_b1", "group": "y1_seq", "group_prompt": "$y_1(n) =$", "prompt": "", "answer": "5", "hint": "$5 \\times 1$", "hint_penalty": 0.6, "weight": 15, "format": "sequence_point", "tolerance": 0},
+        {"id": "s3_b2", "group": "y1_seq", "prompt": "$(1)$", "answer": "19", "hint": "$5 \\times 3 + 4 \\times 1$", "hint_penalty": 0.6, "weight": 14, "format": "sequence_point", "tolerance": 0},
+        {"id": "s3_b3", "group": "y1_seq", "prompt": "$(2)$", "answer": "25", "hint": "$5 \\times 2 + 4 \\times 3 + 3 \\times 1$", "hint_penalty": 0.6, "weight": 14, "format": "sequence_point", "tolerance": 0},
+        {"id": "s3_b4", "group": "y1_seq", "prompt": "$(3)$", "answer": "19", "hint": "$4 \\times 2 + 3 \\times 3 + 2 \\times 1$", "hint_penalty": 0.6, "weight": 14, "format": "sequence_point", "tolerance": 0},
+        {"id": "s3_b5", "group": "y1_seq", "prompt": "$(4)$", "answer": "13", "hint": "$3 \\times 2 + 2 \\times 3 + 1 \\times 1$", "hint_penalty": 0.6, "weight": 14, "format": "sequence_point", "tolerance": 0},
+        {"id": "s3_b6", "group": "y1_seq", "prompt": "$(5)$", "answer": "7", "hint": "$2 \\times 2 + 1 \\times 3$", "hint_penalty": 0.6, "weight": 14, "format": "sequence_point", "tolerance": 0},
+        {"id": "s3_b7", "group": "y1_seq", "prompt": "$(6)$", "answer": "2", "hint": "$1 \\times 2$", "hint_penalty": 0.6, "weight": 15, "format": "sequence_point", "tolerance": 0}
+      ]
+    },
+    {
+      "step_id": "step4",
+      "title": "Step4: 重叠相加",
+      "weight": 20,
+      "time_limit": 180,
+      "blanks": [
+        {"id": "s4_b1", "prompt": "最终卷积结果 $y(n)$ 的总长度 =", "answer": "62", "hint": "$L_x + M - 1 = 60 + 3 - 1$", "hint_penalty": 0.6, "weight": 25, "format": "number", "tolerance": 0},
+        {"id": "s4_b2", "prompt": "相邻两段重叠点数 =", "answer": "2", "hint": "$M - 1$", "hint_penalty": 0.6, "weight": 25, "format": "number", "tolerance": 0},
+        {"id": "s4_b3", "prompt": "$y(0) =$", "answer": "5", "hint": "等于 $y_1(0)$", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s4_b4", "prompt": "$y(6) = y_1(6) + y_2(1) =$", "answer": "21", "hint": "$2 + 19$", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s4_b5", "prompt": "$y(61) =$", "answer": "2", "hint": "最后一段的最后一个点", "hint_penalty": 0.6, "weight": 10, "format": "sequence_point", "tolerance": 0},
+        {"id": "s4_b6", "group": "y_range", "group_prompt": "$y(n)\\text{ 的索引范围} =$", "prompt": "$\\text{起始索引}$", "answer": "0", "hint": "输出序列第一个点的位置", "hint_penalty": 0.6, "weight": 10, "format": "number", "tolerance": 0},
+        {"id": "s4_b7", "group": "y_range", "prompt": "$\\text{结束索引}$", "answer": "61", "hint": "输出序列最后一个点的位置", "hint_penalty": 0.6, "weight": 10, "format": "number", "tolerance": 0}
+      ]
+    }
+  ],
+  "extensions": [
+    {
+      "id": "ext1",
+      "prompt": "重叠相加法中，每段卷积结果 $y_i(n)$ 的长度 $P$ 与 $N$、$M$ 的关系是什么？",
+      "answer": "$P = N + M - 1$",
+      "hint": "补零后的长度 = 分段长度 + 冲激响应长度 - 1",
+      "bonus": 10
+    },
+    {
+      "id": "ext2",
+      "prompt": "若将分段长度 $N$ 改为 10，则总段数变为多少？",
+      "answer": "6",
+      "hint": "$60 \\div 10$",
+      "bonus": 10
+    }
+  ]
+}

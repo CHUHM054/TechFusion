@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """题库加载器——支持过滤、抽样、乱序，可选 @st.cache_data 缓存"""
+import json
 import os
 import random
 import time
@@ -12,9 +13,10 @@ try:
 except (ImportError, OSError):
     _HAS_STREAMLIT = False
 
-from config import get_active_questions_csv
+from config import DATA_DIR, get_active_questions_csv, get_active_subject
+from utils.validators.calc_validator import validate_calc_directory
 
-VALID_TYPES = {"choice", "judge", "fill", "subjective"}
+VALID_TYPES = {"choice", "judge", "fill", "subjective", "calc"}
 
 
 def _load_raw(csv_path: str) -> pd.DataFrame:
@@ -106,3 +108,39 @@ def sample_questions(
         seed = int(time.time() * 1000) % (2**31)
     sampled = candidates.sample(n=n, random_state=seed)
     return sampled.to_dict("records")
+
+
+def _get_active_subject_dir():
+    """获取当前活动主题的完整目录路径"""
+    return os.path.join(DATA_DIR, "subjects", get_active_subject())
+
+
+def load_calc_questions(subject_dir=None):
+    """加载某主题下所有校验通过的 calc 题 JSON。
+
+    对每个 calc/*.json 先执行 Schema + 符号规则 + answer/format 兼容性校验；
+    校验失败则通过 st.toast 提示并跳过该题。
+    """
+    if subject_dir is None:
+        subject_dir = _get_active_subject_dir()
+
+    results = validate_calc_directory(subject_dir)
+    calc_dir = os.path.join(subject_dir, "calc")
+    questions = []
+    for fname in sorted(results.keys()):
+        res = results[fname]
+        if res.get("errors"):
+            err_msg = f"{fname}: " + "; ".join(str(e) for e in res["errors"])
+            if _HAS_STREAMLIT:
+                st.toast(f"计算题校验失败，已跳过：{err_msg}", icon="⚠️")
+            continue
+
+        fpath = os.path.join(calc_dir, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                questions.append(json.load(f))
+        except Exception as e:
+            if _HAS_STREAMLIT:
+                st.toast(f"加载计算题失败：{fname}: {e}", icon="⚠️")
+
+    return questions

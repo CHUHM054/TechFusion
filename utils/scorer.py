@@ -7,6 +7,7 @@
   答错惩罚 = -1 分 + 连击归零
   超时惩罚 = -1 分 + 每超10秒额外-1 (上限-5)
 """
+import math
 import re
 from difflib import SequenceMatcher
 
@@ -128,6 +129,126 @@ def check_fill(user_answer, correct_answer, blank_count=1):
         if not matched:
             return False
     return True
+
+
+# ========== 计算题判题 ==========
+def check_calc_blank(user_answer, correct_answer, format="text", tolerance=0):
+    if format == "number":
+        try:
+            user_val = float(user_answer)
+            correct_val = float(correct_answer)
+        except (ValueError, TypeError):
+            return False
+        return abs(user_val - correct_val) <= tolerance
+
+    if format == "sequence_point":
+        user = str(user_answer).strip()
+        correct = str(correct_answer).strip()
+
+        # 若均为数值，则按容差比较
+        try:
+            user_val = float(user)
+            correct_val = float(correct)
+            return abs(user_val - correct_val) <= tolerance
+        except (ValueError, TypeError):
+            pass
+
+        # 否则做标准化字符串比较：统一逗号为空格、合并多余空格
+        def _norm_sequence(s):
+            return " ".join(s.replace(",", " ").split()).lower()
+
+        return _norm_sequence(user) == _norm_sequence(correct)
+
+    if format == "latex":
+        user = normalize(user_answer).replace("$", "")
+        correct_parts = str(correct_answer).split("|")
+        for ans in correct_parts:
+            if normalize(ans).replace("$", "") == user:
+                return True
+        return False
+
+    user = normalize(user_answer) if isinstance(user_answer, str) else normalize(" ".join(user_answer))
+    correct_parts = str(correct_answer).split("|")
+    for ans in correct_parts:
+        if normalize(ans) == user:
+            return True
+    first = normalize(correct_parts[0])
+    if first and SequenceMatcher(None, user, first).ratio() >= FILL_SIMILARITY_THRESHOLD:
+        return True
+    return False
+
+
+# ========== 计算题步骤/扩展评分 ==========
+def score_calc_step(step_data, user_answers, hints_used, time_used):
+    step_weight = step_data.get("weight", 100)
+    time_limit = step_data.get("time_limit", 120)
+    total_score = 0.0
+    blank_results = []
+
+    for blank in step_data["blanks"]:
+        bid = blank["id"]
+        blank_base = (blank["weight"] / 100) * (step_weight / 100) * 100
+
+        hint_used = hints_used.get(bid, False)
+        if hint_used and blank.get("hint_penalty", 0.6) == 0:
+            hint_factor = 0.0
+        elif hint_used:
+            hint_factor = blank.get("hint_penalty", 0.6)
+        else:
+            hint_factor = 1.0
+
+        user_ans = user_answers.get(bid, "")
+        correct = blank["answer"]
+        is_correct = check_calc_blank(
+            user_ans, correct,
+            blank.get("format", "text"),
+            blank.get("tolerance", 0),
+        )
+
+        # 时间奖励已移除，时间系数恒为 1.0
+        time_factor = 1.0
+
+        correct_factor = 1.0 if is_correct else 0.0
+
+        blank_score = blank_base * hint_factor * time_factor * correct_factor
+        total_score += blank_score
+
+        blank_results.append({
+            "id": bid,
+            "prompt": blank["prompt"],
+            "correct": is_correct,
+            "user_answer": user_ans,
+            "correct_answer": correct,
+            "score": round(blank_score, 2),
+            "hint_used": hint_used,
+            "time_factor": round(time_factor, 2),
+            "timeout_penalty_ratio": 0.0,
+        })
+
+    # 超时扣分：超过时限按对数曲线扣减，最高扣 40%
+    timeout_penalty_ratio = 0.0
+    if time_used > time_limit and time_limit > 0:
+        overtime = time_used - time_limit
+        timeout_penalty_ratio = min(
+            0.4,
+            0.2 + 0.2 * math.log(1 + overtime / time_limit) / math.log(2),
+        )
+        total_score = total_score * (1 - timeout_penalty_ratio)
+        # 将统一的超时扣分比例回填到每空结果，便于 UI 展示
+        for r in blank_results:
+            r["timeout_penalty_ratio"] = round(timeout_penalty_ratio, 4)
+
+    return round(total_score, 2), blank_results
+
+
+def score_extensions(extensions, user_answers):
+    total_bonus = 0.0
+    for ext in extensions:
+        user_ans = user_answers.get(ext["id"], "")
+        is_correct = check_calc_blank(user_ans, ext["answer"], "text")
+        if is_correct:
+            total_bonus += ext.get("bonus", 0)
+    return min(total_bonus, 20)
 
 
 # ========== 主观题参考评分 ==========

@@ -332,6 +332,52 @@ def inject_gufeng_css():
     .combo-effect-7 { animation: comboGlow 1.5s ease-in-out, comboPulse 0.5s ease-in-out 5; }
     .combo-effect-10 { animation: comboGlow 1.5s ease-in-out; }
 
+    /* 计算题：卡片式公式块 */
+    .calc-formula-card {
+        background: #F5F5F0;
+        border-left: 4px solid #A83232;
+        padding: 12px 16px;
+        margin: 8px 0;
+        border-radius: 4px;
+        font-size: 18px;
+        font-weight: bold;
+    }
+
+    /* 计算题：步骤卡片左侧色条（通过 marker + :has 命中带边框的 stVerticalBlock） */
+    [data-testid="stVerticalBlock"]:has(.calc-step-marker.current) {
+        border-left: 5px solid #3A6EA5 !important;
+    }
+    [data-testid="stVerticalBlock"]:has(.calc-step-marker.completed) {
+        border-left: 5px solid #5D8C87 !important;
+    }
+    [data-testid="stVerticalBlock"]:has(.calc-step-marker.locked) {
+        border-left: 5px solid #C0C0C0 !important;
+    }
+
+    /* 计算题：输入框旁 💡 / 👁 小图标按钮 */
+    button[title="提示"],
+    button[title="查看答案"] {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 2px !important;
+        min-height: auto !important;
+        height: auto !important;
+        font-size: 20px !important;
+        width: auto !important;
+        color: var(--ink) !important;
+        box-shadow: none !important;
+    }
+    button[title="提示"]:disabled,
+    button[title="查看答案"]:disabled {
+        opacity: 0.35 !important;
+        background: transparent !important;
+        cursor: not-allowed !important;
+    }
+    button[title="提示"]:hover:not(:disabled),
+    button[title="查看答案"]:hover:not(:disabled) {
+        opacity: 0.75 !important;
+    }
+
     /* 移动端适配 */
     @media (max-width: 768px) {
         html { font-size: 15px; }

@@ -39,6 +39,12 @@ def _init_state():
         "wrong_questions": [],
         "round_history": [],
     }
+    # 控制仪表盘顶部「切换题库」选择器的显示/隐藏
+    if "show_subject_switcher" not in st.session_state:
+        st.session_state.show_subject_switcher = False
+    # 用于在 st.rerun() 之后仍能显示 Toast
+    if "_pending_toasts" not in st.session_state:
+        st.session_state._pending_toasts = []
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -50,6 +56,31 @@ def _init_state():
         st.session_state.is_mobile = False
 
 _init_state()
+
+# 先展示上一步攒下的 Toast，再清空，避免 st.rerun() 把 Toast 吞掉
+for _toast in st.session_state._pending_toasts:
+    st.toast(_toast["msg"], icon=_toast.get("icon"))
+st.session_state._pending_toasts = []
+
+
+def _subject_has_calc(subject_name):
+    """判断指定学科下是否存在计算题（questions.csv 中有 type=calc 或 calc 目录非空）。"""
+    questions_csv = os.path.join(DATA_DIR, "subjects", subject_name, "questions.csv")
+    try:
+        import pandas as pd
+        _q_df = pd.read_csv(questions_csv, encoding="utf-8-sig")
+        if "type" in _q_df.columns and (_q_df["type"] == "calc").any():
+            return True
+    except Exception:
+        pass
+    calc_dir = os.path.join(DATA_DIR, "subjects", subject_name, "calc")
+    try:
+        if os.path.isdir(calc_dir) and os.listdir(calc_dir):
+            return True
+    except Exception:
+        pass
+    return False
+
 
 # ---- 自动载入存档逻辑 ----
 from utils.storage import get_auto_load, load_session, verify_archive_key
@@ -235,17 +266,43 @@ except Exception:
 
 st.title("仪表盘")
 
+# ---- 顶部当前学科展示与切换 ----
 subjects = list_subjects()
-if len(subjects) > 1:
-    active = get_active_subject()
+active = get_active_subject()
+# 从学科列表中匹配当前学科的图标，未找到时使用默认 📚
+active_icon = "📚"
+for s in subjects:
+    if s["name"] == active:
+        active_icon = s.get("icon", "📚")
+        break
+
+subj_col, switch_col = st.columns([6, 1])
+with subj_col:
+    st.markdown(f"**当前题库：{active_icon} {active}**")
+with switch_col:
+    # 只有存在多个题库时才显示切换按钮
+    if len(subjects) > 1 and st.button("切换题库", key="btn_toggle_subject_switcher", width="stretch"):
+        st.session_state.show_subject_switcher = not st.session_state.show_subject_switcher
+
+# 当用户点击「切换题库」后，展开学科选择器
+if st.session_state.show_subject_switcher and len(subjects) > 1:
     idx = 0
     for i, s in enumerate(subjects):
         if s["name"] == active:
             idx = i
-    selected_subj = st.selectbox("当前学科", [s["name"] for s in subjects], index=idx, key="subject_switcher")
+    selected_subj = st.selectbox(
+        "选择要切换的题库", [s["name"] for s in subjects], index=idx, key="subject_switcher"
+    )
     if selected_subj != active:
+        # 切换前记录旧题库是否含计算题，用于判断是否需要提示「解锁」
+        prev_has_calc = _subject_has_calc(active)
+        new_has_calc = _subject_has_calc(selected_subj)
         set_active_subject(selected_subj)
         st.session_state.loaded = False
+        # 把 Toast 放进 pending，下次 run 时显示，避免被 st.rerun() 吞掉
+        st.session_state._pending_toasts.append({"msg": f"已切换到：{selected_subj}", "icon": "🔄"})
+        if new_has_calc and not prev_has_calc:
+            st.session_state._pending_toasts.append({"msg": "新的计算题模式已解锁", "icon": "🔓"})
         st.rerun()
 
 st.info(f"{content} —— {author}")
@@ -295,7 +352,14 @@ with tc2:
 st.divider()
 
 st.subheader("选择答题模式开始练习")
+
+# 判断当前主题是否有计算题（type=calc 或 calc 目录非空），决定「格物致知」卡片是否显示
+active_subject = get_active_subject()
+has_calc = _subject_has_calc(active_subject)
+
 for key, cfg in MODE_CONFIG.items():
+    if key == "calc" and not has_calc:
+        continue
     stats_text = ""
     if key == "reflect":
         n_wrong = len(st.session_state.get("wrong_questions", []))
@@ -310,6 +374,15 @@ for key, cfg in MODE_CONFIG.items():
         except Exception:
             _reward_total = 16
         stats_text = f"({exp_covered}/{_reward_total} 章节)" if exp_covered else ""
+    elif key == "calc":
+        try:
+            from config import get_active_questions_csv
+            import pandas as pd
+            _calc_df = pd.read_csv(get_active_questions_csv(), encoding="utf-8-sig")
+            _calc_count = len(_calc_df[_calc_df["type"] == "calc"])
+        except Exception:
+            _calc_count = 0
+        stats_text = f"({_calc_count} 道待练)" if _calc_count else ""
     with st.container():
         c1, c2 = st.columns([3, 1])
         with c1:
@@ -318,7 +391,10 @@ for key, cfg in MODE_CONFIG.items():
         with c2:
             if st.button("开始", key=f"btn_{key}", width="stretch"):
                 st.session_state["quiz_mode"] = key
-                st.switch_page("pages/01_答题练习.py")
+                if key == "calc":
+                    st.switch_page("pages/02_分步答题.py")
+                else:
+                    st.switch_page("pages/01_答题练习.py")
 
 st.divider()
 

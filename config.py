@@ -16,7 +16,12 @@ def _read_subjects_config():
     if os.path.exists(SUBJECTS_JSON):
         with open(SUBJECTS_JSON, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"active": "物理实验", "subjects": [{"id": "physics", "name": "物理实验", "path": "物理实验", "icon": "🔬"}]}
+    # 默认学科列表：支持物理实验与信号与系统双主题
+    default_subjects = [
+        {"id": "physics", "name": "物理实验", "path": "物理实验", "icon": "🔬"},
+        {"id": "signals", "name": "信号与系统", "path": "信号与系统", "icon": "📡"},
+    ]
+    return {"active": default_subjects[0]["name"], "subjects": default_subjects}
 
 
 def get_active_subject():
@@ -56,6 +61,7 @@ TYPE_WEIGHT = {
     "judge": 1.5,
     "fill": 3.0,
     "subjective": 0.0,
+    "calc": 4.0,
 }
 
 # ========== 限时常量（秒） ==========
@@ -63,6 +69,7 @@ TIME_LIMIT_CHOICE = 30
 TIME_LIMIT_JUDGE = 20
 TIME_LIMIT_FILL = 45
 TIME_LIMIT_SUBJECTIVE = 120
+TIME_LIMIT_CALC = 300
 
 # ========== 计分参数（平衡挑战型） ==========
 BASE_SCORE_MULTIPLIER = 1.0
@@ -98,6 +105,10 @@ MODE_CONFIG = {
         "desc": "错题精练，反思中进步",
         "default_count": 10,
     },
+    "calc": {
+        "title": "格物致知",
+        "desc": "分步计算题，循序解锁，知其所以然",
+    },
 }
 
 # ========== 古风配色（朱砂墨色系） ==========
@@ -126,8 +137,8 @@ ENABLE_AUTOREFRESH = True
 QUESTION_BANK_REVIEW_DATE = "2026-06-19"
 
 # ========== 系统版本信息 ==========
-APP_VERSION = "1.5.5"
-APP_CODENAME = "玄青"
-APP_BUILD = 23
-APP_UPDATE_DATE = "2026-06-21"
+APP_VERSION = "1.5.9"
+APP_CODENAME = "青竹"
+APP_BUILD = 27
+APP_UPDATE_DATE = "2026-06-23"
 QUESTION_BANK_UPDATE_DATE = "2026-06-21"

@@ -1,0 +1,16 @@
+{
+  "chapters": {
+    "重叠相加法": {
+      "required_symbols": ["x(n)", "h(n)", "y(n)", "L", "M", "N", "P"],
+      "definitions": {
+        "x(n)": {"meaning": "输入序列", "unit": "无量纲", "type": "sequence", "formula": "$x(n)=\\{x(0),x(1),\\dots,x(L-1)\\}_{[0,L-1]}$", "example": "$x(n)=\\{5,4,3,2,1\\}_{[0,4]}$"},
+        "h(n)": {"meaning": "冲激响应序列", "unit": "无量纲", "type": "sequence", "formula": "$h(n)=\\{h(0),h(1),\\dots,h(M-1)\\}_{[0,M-1]}$", "example": "$h(n)=\\{1,3,2\\}_{[0,2]}$"},
+        "y(n)": {"meaning": "输出序列/线性卷积结果", "unit": "无量纲", "type": "sequence", "formula": "$y(n)=x(n)*h(n)$", "example": "$y(n)=x(n)*h(n)$"},
+        "L": {"meaning": "输入序列总长度", "unit": "点", "type": "scalar", "formula": "$L=60$"},
+        "M": {"meaning": "冲激响应序列长度", "unit": "点", "type": "scalar", "formula": "$M=\\mathrm{len}(h(n))$"},
+        "N": {"meaning": "输入信号分段长度（循环周期）", "unit": "点", "type": "scalar", "formula": "$N=5$"},
+        "P": {"meaning": "每段补零后的长度，$P=N+M-1$", "unit": "点", "type": "scalar", "formula": "$P=N+M-1=7$"}
+      }
+    }
+  }
+}

@@ -1,0 +1,430 @@
+{
+  "schema_version": "1.0",
+  "id": "sig002",
+  "chapter": "重叠保留法",
+  "knowledge": "重叠保留法原理",
+  "difficulty": 4,
+  "title": "重叠保留法求线性卷积",
+  "question": "已知序列$x(n)=\\{5,4,3,2,1,5,4,3,2,1,\\cdots,5,4,3,2,1\\}_{[0,59]}$，冲激响应$h(n)=\\{1,3,2\\}_{[0,2]}$，使用重叠保留法求$y(n)=x(n)*h(n)$。",
+  "symbols": [
+    {
+      "symbol": "x(n)",
+      "meaning": "输入序列，周期为5的周期序列",
+      "chapter": "重叠保留法",
+      "formula": "$x(n)=\\{5,4,3,2,1,\\cdots\\}_{[0,59]}$"
+    },
+    {
+      "symbol": "h(n)",
+      "meaning": "冲激响应序列",
+      "chapter": "重叠保留法",
+      "formula": "$h(n)=\\{1,3,2\\}_{[0,2]}$"
+    },
+    {
+      "symbol": "y(n)",
+      "meaning": "输出序列/线性卷积结果",
+      "chapter": "重叠保留法",
+      "formula": "$y(n)=x(n)*h(n)$"
+    },
+    {
+      "symbol": "L",
+      "meaning": "输入序列总长度",
+      "chapter": "重叠保留法",
+      "formula": "$L=60$"
+    },
+    {
+      "symbol": "M",
+      "meaning": "冲激响应序列长度",
+      "chapter": "重叠保留法",
+      "formula": "$M=3$"
+    },
+    {
+      "symbol": "N",
+      "meaning": "每段有效输出点数",
+      "chapter": "重叠保留法",
+      "formula": "$N=5$"
+    },
+    {
+      "symbol": "P",
+      "meaning": "每段实际长度/DFT点数，$P=N+M-1$",
+      "chapter": "重叠保留法",
+      "formula": "$P=N+M-1=7$"
+    }
+  ],
+  "steps": [
+    {
+      "step_id": "step1",
+      "title": "Step1: 确定参数和分段",
+      "weight": 25,
+      "time_limit": 120,
+      "blanks": [
+        {
+          "id": "s1_b1",
+          "prompt": "输入序列总长度 $L =$",
+          "answer": "60",
+          "hint": "$x(n)$ 的索引范围是 $[0,59]$，共 $60$ 个点",
+          "hint_penalty": 0.6,
+          "weight": 20,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s1_b2",
+          "prompt": "冲激响应序列长度 $M =$",
+          "answer": "3",
+          "hint": "$h(n)$ 有几个非零值？",
+          "hint_penalty": 0.6,
+          "weight": 20,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s1_b3",
+          "prompt": "每段有效输出点数 $N =$",
+          "answer": "5",
+          "hint": "重叠保留法中每段保留后 $N$ 点",
+          "hint_penalty": 0.6,
+          "weight": 20,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s1_b4",
+          "prompt": "每段实际长度 / DFT 点数 $P = N + M - 1 =$",
+          "answer": "7",
+          "hint": "代入 $N=5, M=3$",
+          "hint_penalty": 0.6,
+          "weight": 20,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s1_b5",
+          "prompt": "共分为多少段？",
+          "answer": "13",
+          "hint": "$L \\div N = 60 \\div 5$，向上取整并考虑首尾补零共需 $13$ 段",
+          "hint_penalty": 0.6,
+          "weight": 20,
+          "format": "number",
+          "tolerance": 0
+        }
+      ]
+    },
+    {
+      "step_id": "step2",
+      "title": "Step2: 求每一段的卷积",
+      "weight": 30,
+      "time_limit": 240,
+      "blanks": [
+        {
+          "id": "s2_b1",
+          "group": "x0_seq",
+          "group_prompt": "$x_0(n) =$",
+          "prompt": "",
+          "answer": "0",
+          "hint": "第 0 段前 $M-1=2$ 点补零",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b2",
+          "group": "x0_seq",
+          "prompt": "$(1)$",
+          "answer": "0",
+          "hint": "补零",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b3",
+          "group": "x0_seq",
+          "prompt": "$(2)$",
+          "answer": "5",
+          "hint": "$x(0)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b4",
+          "group": "x0_seq",
+          "prompt": "$(3)$",
+          "answer": "4",
+          "hint": "$x(1)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b5",
+          "group": "x0_seq",
+          "prompt": "$(4)$",
+          "answer": "3",
+          "hint": "$x(2)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b6",
+          "group": "x0_seq",
+          "prompt": "$(5)$",
+          "answer": "2",
+          "hint": "$x(3)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b7",
+          "group": "x0_seq",
+          "prompt": "$(6)$",
+          "answer": "1",
+          "hint": "$x(4)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b8",
+          "group": "ycirc0_seq",
+          "group_prompt": "$y_{\\mathrm{circ},0}(n) =$",
+          "prompt": "",
+          "answer": "7",
+          "hint": "$x_0(5)h(2)+x_0(6)h(1)=2\\\\times2+1\\\\times3$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b9",
+          "group": "ycirc0_seq",
+          "prompt": "$(1)$",
+          "answer": "2",
+          "hint": "$x_0(6)h(2)=1\\\\times2$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b10",
+          "group": "ycirc0_seq",
+          "prompt": "$(2)$",
+          "answer": "5",
+          "hint": "$x_0(0)h(0)=0\\\\times1+5$ 混叠后首位",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b11",
+          "group": "ycirc0_seq",
+          "prompt": "$(3)$",
+          "answer": "19",
+          "hint": "$x_0(0)h(1)+x_0(1)h(0)=0+5\\\\times1+4$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b12",
+          "group": "ycirc0_seq",
+          "prompt": "$(4)$",
+          "answer": "25",
+          "hint": "$x_0(0)h(2)+x_0(1)h(1)+x_0(2)h(0)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b13",
+          "group": "ycirc0_seq",
+          "prompt": "$(5)$",
+          "answer": "19",
+          "hint": "$x_0(1)h(2)+x_0(2)h(1)+x_0(3)h(0)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b14",
+          "group": "ycirc0_seq",
+          "prompt": "$(6)$",
+          "answer": "13",
+          "hint": "$x_0(2)h(2)+x_0(3)h(1)+x_0(4)h(0)$",
+          "hint_penalty": 0.6,
+          "weight": 5,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b15",
+          "group": "yeff0_seq",
+          "group_prompt": "$y_{\\mathrm{eff},0}(n) =$",
+          "prompt": "",
+          "answer": "5",
+          "hint": "舍弃前 $M-1=2$ 点后保留后 $N=5$ 点的第 1 个点",
+          "hint_penalty": 0.6,
+          "weight": 6,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b16",
+          "group": "yeff0_seq",
+          "prompt": "$(1)$",
+          "answer": "19",
+          "hint": "",
+          "hint_penalty": 0.6,
+          "weight": 6,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b17",
+          "group": "yeff0_seq",
+          "prompt": "$(2)$",
+          "answer": "25",
+          "hint": "",
+          "hint_penalty": 0.6,
+          "weight": 6,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b18",
+          "group": "yeff0_seq",
+          "prompt": "$(3)$",
+          "answer": "19",
+          "hint": "",
+          "hint_penalty": 0.6,
+          "weight": 6,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s2_b19",
+          "group": "yeff0_seq",
+          "prompt": "$(4)$",
+          "answer": "13",
+          "hint": "",
+          "hint_penalty": 0.6,
+          "weight": 6,
+          "format": "sequence_point",
+          "tolerance": 0
+        }
+      ]
+    },
+    {
+      "step_id": "step3",
+      "title": "Step3: 拼接各段有效输出",
+      "weight": 25,
+      "time_limit": 180,
+      "blanks": [
+        {
+          "id": "s3_b1",
+          "prompt": "每段循环卷积结果应舍弃前 $M-1 =$",
+          "answer": "2",
+          "hint": "$M-1$",
+          "hint_penalty": 0.6,
+          "weight": 15,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s3_b2",
+          "prompt": "每段保留的有效输出点数 =",
+          "answer": "5",
+          "hint": "即 $N$",
+          "hint_penalty": 0.6,
+          "weight": 15,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s3_b3",
+          "group": "y_range",
+          "group_prompt": "$y(n)\\text{ 的索引范围} =$",
+          "prompt": "$\\text{起始索引}$",
+          "answer": "0",
+          "hint": "输出序列第一个点的位置",
+          "hint_penalty": 0.6,
+          "weight": 10,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s3_b4",
+          "group": "y_range",
+          "prompt": "$\\text{结束索引}$",
+          "answer": "61",
+          "hint": "输出序列最后一个非零点的位置",
+          "hint_penalty": 0.6,
+          "weight": 10,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s3_b5",
+          "prompt": "最终卷积结果 $y(n)$ 的总长度 =",
+          "answer": "62",
+          "hint": "$L+M-1=60+3-1$",
+          "hint_penalty": 0.6,
+          "weight": 25,
+          "format": "number",
+          "tolerance": 0
+        },
+        {
+          "id": "s3_b6",
+          "prompt": "$y(0) = y_{\\mathrm{eff},0}(0) =$",
+          "answer": "5",
+          "hint": "第 0 段有效输出的第一个点",
+          "hint_penalty": 0.6,
+          "weight": 10,
+          "format": "sequence_point",
+          "tolerance": 0
+        },
+        {
+          "id": "s3_b7",
+          "prompt": "$y(60) = y_{\\mathrm{eff},12}(0) =$",
+          "answer": "7",
+          "hint": "最后一段有效输出的第一个点",
+          "hint_penalty": 0.6,
+          "weight": 15,
+          "format": "sequence_point",
+          "tolerance": 0
+        }
+      ]
+    }
+  ],
+  "extensions": [
+    {
+      "id": "ext1",
+      "prompt": "重叠保留法中，每段输入序列 $x_i(n)$ 的实际长度 $P$ 与 $N$、$M$ 的关系是什么？",
+      "answer": "$P = N + M - 1$",
+      "hint": "实际分段长度 = 有效输出点数 + 冲激响应长度 - 1",
+      "bonus": 10
+    },
+    {
+      "id": "ext2",
+      "prompt": "若将有效输出点数 $N$ 改为 10，则总段数变为多少？",
+      "answer": "6",
+      "hint": "$60 \\div 10$",
+      "bonus": 10
+    }
+  ]
+}
