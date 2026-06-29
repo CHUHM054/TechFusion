@@ -123,13 +123,12 @@ def _show_toast_once(message, toast_key, kind="info"):
 
 
 def _build_pool(mode, count_override=None, experiment=None):
-    """根据模式构造题目池"""
+    """根据模式构造题目池（统一过滤掉 calc 题，防止普通模式渲染空白）"""
     count = count_override or MODE_CONFIG.get(mode, {}).get("default_count", 10)
 
     if mode == "diligence":
-        return _build_diligence_pool(count)
-
-    if mode == "reflect":
+        pool = _build_diligence_pool(count)
+    elif mode == "reflect":
         wrong_ids = [str(e["qid"]) for e in st.session_state.get("wrong_questions", [])]
         if not wrong_ids:
             return []
@@ -138,9 +137,7 @@ def _build_pool(mode, count_override=None, experiment=None):
         if len(pool) < count:
             extra = sample_questions(n=count - len(pool))
             pool.extend(extra)
-        return pool[:count]
-
-    if mode == "reward":
+    elif mode == "reward":
         exps = st.session_state.get("reward_experiments", [])
         if len(exps) != 3:
             return []
@@ -154,9 +151,11 @@ def _build_pool(mode, count_override=None, experiment=None):
             for q in extra:
                 if str(q.get("id")) not in existing_ids and len(pool) < 36:
                     pool.append(q)
-        return pool[:36]
+    else:
+        pool = sample_questions(n=count)
 
-    return sample_questions(n=count)
+    # 防御性兜底：任何模式下都不应出现 calc 题
+    return [q for q in pool if q.get("type") != "calc"]
 
 
 def _start_quiz(mode, count=None, experiment=None):
@@ -312,6 +311,8 @@ def _build_diligence_pool(count):
     from utils.recommender import WeightedQuestionSampler
     df = load_questions(get_active_questions_csv())
     candidates = df.to_dict("records")
+    # 勤能补拙 UI 只支持 choice/judge/fill，提前过滤 calc 题
+    candidates = [q for q in candidates if q.get("type") != "calc"]
     pref = st.session_state.get("diligence_preference", 20)
     sampler = WeightedQuestionSampler(candidates, st.session_state, preference=pref)
     return sampler.sample(count)
@@ -620,26 +621,35 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
     qtype = q["type"]
 
     if qtype == "choice":
-        opts = {
-            "A": q.get("option_a", ""),
-            "B": q.get("option_b", ""),
-            "C": q.get("option_c", ""),
-            "D": q.get("option_d", ""),
+        raw_opts = {
+            "A": str(q.get("option_a", "")),
+            "B": str(q.get("option_b", "")),
+            "C": str(q.get("option_c", "")),
+            "D": str(q.get("option_d", "")),
         }
-        is_mobile = st.session_state.get("is_mobile", False)
-        if is_mobile:
-            cA, cB = st.columns(2)
-            cC, cD = st.columns(2)
+        opts = {k: v for k, v in raw_opts.items() if v.strip() and v.lower() != "nan"}
+        n_opts = len(opts)
+        if n_opts == 0:
+            st.warning("该选择题没有可用选项")
         else:
-            cA, cB, cC, cD = st.columns(4)
-        for col, label in [(cA, "A"), (cB, "B"), (cC, "C"), (cD, "D")]:
-            with col:
-                opt_text = str(opts.get(label, ""))
-                short = opt_text[:60] + ("..." if len(opt_text) > 60 else "")
-                if st.button(label, key=f"dil_{label}_{idx}", use_container_width=True,
-                             help=opt_text):
-                    _handle_diligence_submit(label, q, remaining_total)
-                st.caption(short)
+            is_mobile = st.session_state.get("is_mobile", False)
+            if is_mobile:
+                # 移动设备每行最多 2 列，按实际选项数量动态换行
+                cols = []
+                labels = list(opts.keys())
+                for row_start in range(0, n_opts, 2):
+                    row_labels = labels[row_start:row_start + 2]
+                    row_cols = st.columns(len(row_labels))
+                    cols.extend(row_cols)
+            else:
+                cols = st.columns(n_opts)
+            for col, (label, opt_text) in zip(cols, opts.items()):
+                with col:
+                    short = opt_text[:60] + ("..." if len(opt_text) > 60 else "")
+                    if st.button(label, key=f"dil_{label}_{idx}", use_container_width=True,
+                                 help=opt_text):
+                        _handle_diligence_submit(label, q, remaining_total)
+                    st.caption(short)
 
     elif qtype == "judge":
         cj1, cj2 = st.columns(2)
@@ -670,6 +680,12 @@ if mode == "diligence" and not st.session_state.get("quiz_finished", False):
             if st.button("提交", key=f"dil_fill_btn_{idx}", width="stretch"):
                 if any(p for p in user_parts):
                     _handle_diligence_submit(user_parts, q, remaining_total)
+
+    else:
+        # 勤能补拙 UI 未覆盖的题型（如 calc），提示并允许跳过，避免页面空白卡死
+        st.warning(f"题型 {qtype} 暂不支持在本模式练习，已自动跳过")
+        if st.button("跳过此题", key=f"dil_skip_{idx}", width="stretch"):
+            _handle_diligence_submit("", q, remaining_total)
 
     # ---- 提交后反馈：保留折叠解析，由 Toast 承担主要提示 ----
     if st.session_state.get("show_feedback"):
@@ -839,34 +855,42 @@ else:
             st.session_state.selected_option = None
 
         st.markdown("<div style='margin:16px 0 8px 0;font-weight:500;color:#2C1810;'>请选择答案</div>", unsafe_allow_html=True)
-        is_mobile = st.session_state.get("is_mobile", False)
-        if is_mobile:
-            cA, cB = st.columns(2)
-            cC, cD = st.columns(2)
-            cols = [cA, cB, cC, cD]
-        else:
-            cols = st.columns(4)
-        labels = ["A", "B", "C", "D"]
-        options = {
-            "A": q.get("option_a", ""),
-            "B": q.get("option_b", ""),
-            "C": q.get("option_c", ""),
-            "D": q.get("option_d", ""),
+        raw_options = {
+            "A": str(q.get("option_a", "")),
+            "B": str(q.get("option_b", "")),
+            "C": str(q.get("option_c", "")),
+            "D": str(q.get("option_d", "")),
         }
-        for i, (label, opt_text) in enumerate(options.items()):
-            with cols[i]:
-                is_selected = st.session_state.selected_option == label
-                # 使用印章图标表示选中状态
-                mark = '<span class="seal-correct" style="margin-right:4px;">✓</span>' if is_selected else ''
-                btn_label = f"{label}"
-                if st.button(btn_label, key=f"opt_{label}_{idx}",
-                             use_container_width=True,
-                             type="primary" if is_selected else "secondary"):
-                    st.session_state.selected_option = label
-                if is_selected:
-                    st.markdown(mark, unsafe_allow_html=True)
-                short_text = opt_text[:50] + ("..." if len(opt_text) > 50 else "")
-                st.caption(short_text)
+        options = {k: v for k, v in raw_options.items() if v.strip() and v.lower() != "nan"}
+        n_options = len(options)
+        if n_options == 0:
+            st.warning("该选择题没有可用选项")
+        else:
+            is_mobile = st.session_state.get("is_mobile", False)
+            if is_mobile:
+                # 移动设备每行最多 2 列，按实际选项数量动态换行
+                cols = []
+                labels = list(options.keys())
+                for row_start in range(0, n_options, 2):
+                    row_labels = labels[row_start:row_start + 2]
+                    row_cols = st.columns(len(row_labels))
+                    cols.extend(row_cols)
+            else:
+                cols = st.columns(n_options)
+            for i, (label, opt_text) in enumerate(options.items()):
+                with cols[i]:
+                    is_selected = st.session_state.selected_option == label
+                    # 使用印章图标表示选中状态
+                    mark = '<span class="seal-correct" style="margin-right:4px;">✓</span>' if is_selected else ''
+                    btn_label = f"{label}"
+                    if st.button(btn_label, key=f"opt_{label}_{idx}",
+                                 use_container_width=True,
+                                 type="primary" if is_selected else "secondary"):
+                        st.session_state.selected_option = label
+                    if is_selected:
+                        st.markdown(mark, unsafe_allow_html=True)
+                    short_text = opt_text[:50] + ("..." if len(opt_text) > 50 else "")
+                    st.caption(short_text)
 
         user_answer = st.session_state.selected_option or ""
 

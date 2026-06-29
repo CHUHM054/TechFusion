@@ -128,6 +128,7 @@ def save_session(state, archive_name=None):
     """持久化 session_state 中白名单字段到 JSON。
     如果 archive_name 非空，写入 archives/{name}.json；否则写入 session.json
     """
+    _ensure_dir()  # 确保 SESSION_DIR 存在，访客模式也需要
     data = {}
     for k in PERSIST_KEYS:
         if k in state:
@@ -175,8 +176,8 @@ def _build_context(qtype, answer, options):
         return ""
     answer = str(answer).strip()
     if qtype == "choice":
-        opt_text = (options or {}).get(answer, "")
-        return f"{answer}. {opt_text}" if opt_text else answer
+        opt_text = str((options or {}).get(answer, ""))
+        return f"{answer}. {opt_text}" if opt_text.strip() else answer
     return answer
 
 

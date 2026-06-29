@@ -17,6 +17,8 @@ from config import DATA_DIR, get_active_questions_csv, get_active_subject
 from utils.validators.calc_validator import validate_calc_directory
 
 VALID_TYPES = {"choice", "judge", "fill", "subjective", "calc"}
+# 默认抽样题型：普通答题练习/勤能补拙等模式不抽取 calc 计算题
+DEFAULT_SAMPLE_TYPES = {"choice", "judge", "fill", "subjective"}
 
 
 def _load_raw(csv_path: str) -> pd.DataFrame:
@@ -45,6 +47,25 @@ def _load_questions_impl(csv_path=None):
         df = df[df["type"].isin(VALID_TYPES)].copy()
     if "id" in df.columns:
         df["id"] = df["id"].astype(str)
+    if "difficulty" in df.columns:
+        def _norm_difficulty(v):
+            if pd.isna(v):
+                return 1
+            if isinstance(v, str):
+                v = v.strip()
+                mapping = {"易": 1, "中": 2, "难": 3, "容易": 1, "中等": 2, "困难": 3}
+                if v in mapping:
+                    return mapping[v]
+                # 尝试去掉非数字字符后转 int
+                try:
+                    return int(float(v))
+                except Exception:
+                    return 1
+            try:
+                return int(float(v))
+            except Exception:
+                return 1
+        df["difficulty"] = df["difficulty"].apply(_norm_difficulty).astype(int)
     if "blank_count" in df.columns:
         df["blank_count"] = df["blank_count"].fillna(1).astype(int)
     if "fill_hint" in df.columns:
@@ -80,8 +101,9 @@ def sample_questions(
     if df.empty:
         return []
     mask = pd.Series(True, index=df.index)
-    if types and "type" in df.columns:
-        mask &= df["type"].isin(types)
+    effective_types = types if types is not None else DEFAULT_SAMPLE_TYPES
+    if effective_types and "type" in df.columns:
+        mask &= df["type"].isin(effective_types)
     # 章节筛选 (优先用 experiment 列，否则回退到 knowledge)
     if experiments:
         if "experiment" in df.columns:
